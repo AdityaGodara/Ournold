@@ -27,7 +27,7 @@ const fontPoiretOne = Poiret_One({
   weight: ["400"],
 });
 
-export default function MacrosForm({ userId }: { userId?: string }) {
+export default function MacrosForm() {
   // userId prop: pass the authenticated Firebase user uid here.
   // If omitted, items will be stored under "users/anonymous/meals"
   const [query, setQuery] = useState("");
