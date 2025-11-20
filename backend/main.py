@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict
-import google.generativeai as genai
+from google import genai
 import requests
 import json
 import re
@@ -58,6 +58,8 @@ try:
 except ValueError:
     cred = credentials.Certificate(os.getenv("FIREBASE_CREDENTIALS"))
     firebase_admin.initialize_app(cred)
+
+db = firestore.client()
 
 # ----------------------------- BMI ROUTE -----------------------------
 
@@ -497,7 +499,7 @@ also provide stylish markdown to improve answer presentation.
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 @app.post("/api/analyze_food")
@@ -514,20 +516,24 @@ async def analyze_food(image_url: str = Query(...)):
             raise HTTPException(
                 status_code=400, detail="Downloaded image is too small or empty")
 
-        model = genai.GenerativeModel("gemini-2.5-flash")
-
         prompt = (
             "Analyze this food image and quantity and return a JSON like: "
             '{"food_name":"...", "total_calories":..., "protein_g":..., "carbs_g":..., "fat_g":...}'
             "Just provide json as output and nothing else."
         )
 
-        response = model.generate_content([
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+        response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
             prompt,
             {"mime_type": mime_type, "data": img_bytes}
-        ])
+        ]
+        )
 
         return {"analysis": response.text}
+
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1029,4 +1035,3 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
-
