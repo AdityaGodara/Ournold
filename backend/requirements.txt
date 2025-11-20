@@ -1,35 +1,36 @@
-# Web / API
-fastapi>=0.95.0
+# ------------------- FastAPI & Server -------------------
+fastapi>=0.110.0
 uvicorn[standard]>=0.22.0
-
-# Env
-python-dotenv>=1.0.0
-
-# Firebase
-firebase-admin>=6.0.0
-
-# Validation
-pydantic>=1.10.0
-
-# HTTP / requests
-requests>=2.31.0
-
-# Cloudinary
-cloudinary>=1.29.0
-
-# Google Generative AI (used as `import google.generativeai as genai`)
-google-genai>=1.2.0
-
-# Langchain integrations used in main.py
-langchain>=0.0.300
-langchain-groq>=0.0.1
-langchain-google-genai>=0.0.1
-
-# Optional / helpers
 python-multipart>=0.0.5
 
-sentence-transformers
+# ------------------- Environment -------------------
+python-dotenv>=1.0.0
 
+# ------------------- Firebase -------------------
+firebase-admin>=6.2.0
+google-cloud-firestore>=2.17.0
 
-# Note: bmibmr.py is a local module — provide its contents if you want its specific third-party packages included here.
+# ------------------- Validation / Core Utils -------------------
+pydantic>=2.1.0
 
+# ------------------- HTTP -------------------
+requests>=2.31.0
+
+# ------------------- Cloudinary -------------------
+cloudinary>=1.36.0
+
+# ------------------- AI / LLM SDKs -------------------
+google-genai>=1.20.0           # for import google.generativeai
+langchain>=0.1.0
+langchain-groq>=0.0.5
+langchain-google-genai>=0.0.6
+
+# ------------------- Embeddings / NLP -------------------
+sentence-transformers>=2.2.2
+scikit-learn>=1.3.0            # cosine_similarity
+numpy>=1.26.0
+
+# ------------------- Optional but recommended -------------------
+protobuf>=4.24.0
+google-api-core>=2.15.0
+google-auth>=2.22.0
