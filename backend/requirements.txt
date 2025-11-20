@@ -18,7 +18,7 @@ requests>=2.31.0
 cloudinary>=1.29.0
 
 # Google Generative AI (used as `import google.generativeai as genai`)
-google-generative-ai>=0.3.0
+google-genai>=1.2.0
 
 # Langchain integrations used in main.py
 langchain>=0.0.300
@@ -27,5 +27,6 @@ langchain-google-genai>=0.0.1
 
 # Optional / helpers
 python-multipart>=0.0.5
+
 
 # Note: bmibmr.py is a local module — provide its contents if you want its specific third-party packages included here.
