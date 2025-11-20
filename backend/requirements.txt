@@ -28,5 +28,8 @@ langchain-google-genai>=0.0.1
 # Optional / helpers
 python-multipart>=0.0.5
 
+sentence-transformers
+
 
 # Note: bmibmr.py is a local module — provide its contents if you want its specific third-party packages included here.
+
