@@ -1,0 +1,31 @@
+# Web / API
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+
+# Env
+python-dotenv>=1.0.0
+
+# Firebase
+firebase-admin>=6.0.0
+
+# Validation
+pydantic>=1.10.0
+
+# HTTP / requests
+requests>=2.31.0
+
+# Cloudinary
+cloudinary>=1.29.0
+
+# Google Generative AI (used as `import google.generativeai as genai`)
+google-generative-ai>=0.3.0
+
+# Langchain integrations used in main.py
+langchain>=0.0.300
+langchain-groq>=0.0.1
+langchain-google-genai>=0.0.1
+
+# Optional / helpers
+python-multipart>=0.0.5
+
+# Note: bmibmr.py is a local module — provide its contents if you want its specific third-party packages included here.
