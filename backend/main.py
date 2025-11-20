@@ -56,10 +56,8 @@ app.add_middleware(
 try:
     firebase_admin.get_app()
 except ValueError:
-    cred = credentials.Certificate(os.getenv("FIREBASE_CREDENTIAL_PATH"))
+    cred = credentials.Certificate(os.getenv("FIREBASE_CREDENTIALS"))
     firebase_admin.initialize_app(cred)
-
-db = firestore.client()
 
 # ----------------------------- BMI ROUTE -----------------------------
 
@@ -1031,3 +1029,4 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
+
