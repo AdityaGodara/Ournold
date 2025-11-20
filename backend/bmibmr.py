@@ -13,14 +13,12 @@ import json
 
 load_dotenv()
 
-# Firebase initialization check
+# Initialize Firebase
 try:
     firebase_admin.get_app()
 except ValueError:
-    cred = credentials.Certificate(os.getenv('FIREBASE_CREDENTIAL_PATH'))
+    cred = credentials.Certificate(os.getenv("FIREBASE_CREDENTIALS"))
     firebase_admin.initialize_app(cred)
-
-db = firestore.client()
 
 
 def fetch_bmi_firestore(user_id: str):
@@ -334,3 +332,4 @@ Answer concisely ...
     )
 
     return prompt
+
