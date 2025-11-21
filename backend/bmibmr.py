@@ -17,7 +17,7 @@ load_dotenv()
 try:
     firebase_admin.get_app()
 except ValueError:
-    cred = credentials.Certificate(os.getenv("FIREBASE_CREDENTIALS"))
+    cred = credentials.Certificate("/etc/secrets/ournold-87a44-firebase-adminsdk-fbsvc-e1b57b1a85.json")
     firebase_admin.initialize_app(cred)
 
 
@@ -332,4 +332,5 @@ Answer concisely ...
     )
 
     return prompt
+
 
