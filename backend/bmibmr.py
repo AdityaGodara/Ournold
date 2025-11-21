@@ -1,64 +1,74 @@
+import os
+import json
+from dotenv import load_dotenv
+from fastapi import HTTPException
 import firebase_admin
 from firebase_admin import credentials, firestore
-from fastapi import HTTPException
-import os
-from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
-import numpy as np
-import json
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-
-import json
+from langchain_groq import GroqEmbeddings
 
 load_dotenv()
 
-# Initialize Firebase
+# ============= FIREBASE INITIALIZATION =============
 try:
     firebase_admin.get_app()
 except ValueError:
-    cred = credentials.Certificate("/etc/secrets/ournold-87a44-firebase-adminsdk-fbsvc-e1b57b1a85.json")
+    # Use JSON string from environment variable
+    firebase_json = os.getenv("FIREBASE_CREDENTIALS")
+    if not firebase_json:
+        raise ValueError("FIREBASE_CREDENTIALS not found in env")
+    cred = credentials.Certificate(json.loads(firebase_json))
     firebase_admin.initialize_app(cred)
 
+db = firestore.client()
+
+# ============= EMBEDDING MODEL (GROQ) =============
+embedder = GroqEmbeddings(
+    model="text-embedding-3-small",
+    api_key=os.getenv("GROQ_API_KEY")
+)
+
+
+def embed_texts(texts):
+    return embedder.embed_documents(texts)
+
+
+def embed_query(q):
+    return embedder.embed_query(q)
+
+
+# ============= FETCH FUNCTIONS =============
 
 def fetch_bmi_firestore(user_id: str):
     try:
         ref = db.collection("users").document(user_id)
         doc = ref.get()
 
-        if doc.exists:
-            data = doc.to_dict()
-
-            if not data:
-                raise HTTPException(
-                    status_code=404, detail="User data is empty")
-
-            if "bmi" in data:
-                return {
-                    "weight": data.get("weight"),
-                    "height": data.get("height"),
-                    "goal": data.get("goal"),
-                    "bmi": data.get("bmi")
-                }
-            # If bmi is inside a subcollection `currentData`
-            elif "currentData" in data:
-                current_data = data["currentData"]
-                if current_data and isinstance(current_data, dict) and "bmi" in current_data:
-                    return {
-                        "weight": current_data.get("weight"),
-                        "height": current_data.get("height"),
-                        "goal": current_data.get("goal"),
-                        "bmi": current_data.get("bmi")
-                    }
-
-            raise HTTPException(status_code=404, detail="BMI not found")
-        else:
+        if not doc.exists:
             raise HTTPException(status_code=404, detail="User not found")
 
-    except HTTPException:
-        raise
+        data = doc.to_dict() or {}
+
+        if "bmi" in data:
+            return {
+                "weight": data.get("weight"),
+                "height": data.get("height"),
+                "goal": data.get("goal"),
+                "bmi": data.get("bmi")
+            }
+
+        if "currentData" in data and isinstance(data["currentData"], dict):
+            cur = data["currentData"]
+            if "bmi" in cur:
+                return {
+                    "weight": cur.get("weight"),
+                    "height": cur.get("height"),
+                    "goal": cur.get("goal"),
+                    "bmi": cur.get("bmi")
+                }
+
+        raise HTTPException(status_code=404, detail="BMI not found")
+
     except Exception as e:
-        print(f"Error fetching BMI: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -67,43 +77,36 @@ def fetch_bmr_firestore(user_id: str):
         ref = db.collection("users").document(user_id)
         doc = ref.get()
 
-        if doc.exists:
-            data = doc.to_dict()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="User not found")
 
-            if not data:
-                raise HTTPException(
-                    status_code=404, detail="User data is empty")
+        data = doc.to_dict() or {}
 
-            if "bmr" in data:
+        if "bmr" in data:
+            return {
+                "goal": data.get("goal"),
+                "bmr": data.get("bmr"),
+                "height": data.get("height"),
+                "weight": data.get("weight"),
+                "gender": data.get("gender"),
+                "age": data.get("age")
+            }
+
+        if "currentData" in data and isinstance(data["currentData"], dict):
+            cur = data["currentData"]
+            if "bmr" in cur:
                 return {
-                    "goal": data.get("goal"),
-                    "bmr": data.get("bmr"),
-                    "height": data.get("height"),
-                    "weight": data.get("weight"),
+                    "goal": cur.get("goal"),
+                    "bmr": cur.get("bmr"),
+                    "height": cur.get("height"),
+                    "weight": cur.get("weight"),
                     "gender": data.get("gender"),
                     "age": data.get("age")
                 }
-            # If bmr is inside a subcollection `currentData`
-            elif "currentData" in data:
-                current_data = data["currentData"]
-                if current_data and isinstance(current_data, dict) and "bmr" in current_data:
-                    return {
-                        "goal": current_data.get("goal"),
-                        "bmr": current_data.get("bmr"),
-                        "height": current_data.get("height"),
-                        "weight": current_data.get("weight"),
-                        "gender": data.get("gender"),
-                        "age": data.get("age")
-                    }
 
-            raise HTTPException(status_code=404, detail="bmr not found")
-        else:
-            raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="BMR not found")
 
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"Error fetching bmr: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -112,52 +115,29 @@ def fetch_req_cal_firestore(user_id: str):
         ref = db.collection("users").document(user_id)
         doc = ref.get()
 
-        if doc.exists:
-            data = doc.to_dict()
-
-            if not data:
-                raise HTTPException(
-                    status_code=404, detail="User data is empty")
-
-            if "maintenanceCalorie" in data:
-                return {
-                    "goal": data.get("goal"),
-                    "exp_goal": data.get("explain_goal"),
-                    "bmi": data.get("bmr"),
-                    "bmr": data.ge("bmr"),
-                    "height": data.get("height"),
-                    "weight": data.get("weight"),
-                    "gender": data.get("gender"),
-                    "mCal": data.get("maintenanceCalories"),
-                    "age": data.get("age"),
-                    "exercie_intensity": current_data.get("exercise_intensity")
-                }
-            # If bmr is inside a subcollection `currentData`
-            elif "currentData" in data:
-                current_data = data["currentData"]
-                if current_data and isinstance(current_data, dict) and "bmr" in current_data:
-                    return {
-                        "goal": current_data.get("goal"),
-                        "exp_goal": current_data.get("explain_goal"),
-                        "bmi": current_data.get("bmi"),
-                        "bmr": current_data.get("bmr"),
-                        "height": current_data.get("height"),
-                        "weight": current_data.get("weight"),
-                        "gender": data.get("gender"),
-                        "mCal": current_data.get("maintenanceCalories"),
-                        "age": data.get("age"),
-                        "exercie_intensity": current_data.get("exercise_intensity")
-                    }
-
-            raise HTTPException(
-                status_code=404, detail="Maintenance Calorie not found")
-        else:
+        if not doc.exists:
             raise HTTPException(status_code=404, detail="User not found")
 
-    except HTTPException:
-        raise
+        data = doc.to_dict() or {}
+
+        if "currentData" in data and isinstance(data["currentData"], dict):
+            cur = data["currentData"]
+            return {
+                "goal": cur.get("goal"),
+                "exp_goal": cur.get("explain_goal"),
+                "bmi": cur.get("bmi"),
+                "bmr": cur.get("bmr"),
+                "height": cur.get("height"),
+                "weight": cur.get("weight"),
+                "gender": data.get("gender"),
+                "mCal": cur.get("maintenanceCalories"),
+                "age": data.get("age"),
+                "exercise_intensity": cur.get("exercise_intensity")
+            }
+
+        raise HTTPException(status_code=404, detail="Maintenance Calorie not found")
+
     except Exception as e:
-        print(f"Error fetching bmr: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -166,171 +146,104 @@ def health_summary(user_id: str):
         ref = db.collection("users").document(user_id)
         doc = ref.get()
 
-        if doc.exists:
-            data = doc.to_dict()
-
-            if not data:
-                raise HTTPException(
-                    status_code=404, detail="User data is empty")
-
-            if "currentData" in data:
-                current_data = data["currentData"]
-                if current_data and isinstance(current_data, dict) and "bmr" in current_data:
-                    return {
-                        "goal": current_data.get("goal"),
-                        "exp_goal": current_data.get("explain_goal"),
-                        "bmi": current_data.get("bmi"),
-                        "bmr": current_data.get("bmr"),
-                        "height": current_data.get("height"),
-                        "weight": current_data.get("weight"),
-                        "gender": data.get("gender"),
-                        "mCal": current_data.get("maintenanceCalories"),
-                        "complication": current_data.get("any_complication"),
-                        "body_type": current_data.get("body_type"),
-                        "diet": data.get("diet"),
-                        "age": data.get("age"),
-                        "budget": data.get("budget"),
-                        "exercise_intensity": current_data.get("exercise_intensity"),
-                        "req_cal_intake": current_data.get("req_cal_intake")
-                    }
-
-            raise HTTPException(
-                status_code=404, detail="Maintenance Calorie not found")
-        else:
+        if not doc.exists:
             raise HTTPException(status_code=404, detail="User not found")
 
-    except HTTPException:
-        raise
+        data = doc.to_dict() or {}
+
+        if "currentData" not in data:
+            raise HTTPException(status_code=404, detail="currentData not found")
+
+        cur = data["currentData"]
+
+        return {
+            "goal": cur.get("goal"),
+            "exp_goal": cur.get("explain_goal"),
+            "bmi": cur.get("bmi"),
+            "bmr": cur.get("bmr"),
+            "height": cur.get("height"),
+            "weight": cur.get("weight"),
+            "gender": data.get("gender"),
+            "mCal": cur.get("maintenanceCalories"),
+            "complication": cur.get("any_complication"),
+            "body_type": cur.get("body_type"),
+            "diet": data.get("diet"),
+            "age": data.get("age"),
+            "budget": data.get("budget"),
+            "exercise_intensity": cur.get("exercise_intensity"),
+            "req_cal_intake": cur.get("req_cal_intake")
+        }
+
     except Exception as e:
-        print(f"Error fetching bmr: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-embedder = SentenceTransformer("all-MiniLM-L6-V2")
-
+# ============= TEXT FLATTENING =============
 
 def flatten_dict(d, parent_key='', sep='_'):
-    """Recursively flatten nested dictionaries (handles currentData etc)."""
-    items = []
+    out = {}
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
+            out.update(flatten_dict(v, new_key, sep=sep))
         else:
-            items.append((new_key, v))
-    return dict(items)
+            out[new_key] = v
+    return out
 
+
+# ============= RAG QUERY (NO SKLEARN, NO NUMPY) =============
 
 def ans_query_on_demand(user_id: str, query: str):
-    """
-    Fetches and merges data from:
-    - users collection (main doc)
-    - history subcollection
-    - meals subcollection
-    Creates embeddings across all merged data and retrieves the most relevant context.
-    """
-
-    # ---- Fetch Main User Document ----
-    user_doc_ref = db.collection("users").document(user_id)
-    user_doc = user_doc_ref.get()
+    user_doc = db.collection("users").document(user_id).get()
 
     if not user_doc.exists:
         return "No data found for this user."
 
     user_data = user_doc.to_dict() or {}
-    user_data_flat = flatten_dict(user_data)
-
     texts = []
 
-    # ---- Always include user-level fields first ----
-    user_info_parts = []
-    for key, value in user_data_flat.items():
-        if hasattr(value, "to_datetime"):
-            value = value.to_datetime().strftime("%Y-%m-%d %H:%M:%S")
-        elif isinstance(value, (dict, list)):
-            value = str(value)
-        elif value is None:
-            continue
+    # Add flattened user profile
+    flat = flatten_dict(user_data)
+    profile_parts = [f"{k.replace('_',' ')}: {v}" for k, v in flat.items() if v]
+    if profile_parts:
+        texts.append("User Profile → " + ", ".join(profile_parts))
 
-        key_clean = key.replace("_", " ")
-        # Add more semantic clarity for LLM
-        if key.lower() == "name":
-            user_info_parts.append(f"User name: {value}")
-        else:
-            user_info_parts.append(f"User {key_clean}: {value}")
-
-    if user_info_parts:
-        texts.append("User Profile → " + ", ".join(user_info_parts))
-
-    # ---- Fetch & Include Subcollection Data ----
-    subcollections = ["history", "meals"]
-    for subcol in subcollections:
+    # Add meals + history
+    for sub in ["history", "meals"]:
         try:
-            docs = user_doc_ref.collection(subcol).stream()
+            docs = db.collection("users").document(user_id).collection(sub).stream()
             for doc in docs:
-                doc_data = doc.to_dict()
-                if not doc_data:
-                    continue
-
-                doc_data_flat = flatten_dict(doc_data)
-                parts = []
-                for k, v in doc_data_flat.items():
-                    if hasattr(v, "to_datetime"):
-                        v = v.to_datetime().strftime("%Y-%m-%d %H:%M:%S")
-                    elif isinstance(v, (dict, list)):
-                        v = str(v)
-                    elif v is None:
-                        continue
-                    parts.append(f"{k.replace('_', ' ')}: {v}")
-
+                flat_doc = flatten_dict(doc.to_dict() or {})
+                parts = [f"{k.replace('_',' ')}: {v}" for k, v in flat_doc.items() if v]
                 if parts:
-                    texts.append(
-                        f"{subcol.capitalize()} → " + ", ".join(parts))
-        except Exception as e:
-            print(f"Error reading {subcol} subcollection:", e)
-            continue
+                    texts.append(f"{sub.capitalize()} → " + ", ".join(parts))
+        except:
+            pass
 
-    # ---- Verify User Info Presence ----
     if not texts:
-        return "No data found in user profile or subcollections."
+        return "No user data exists."
 
-    # ---- Debugging Aid ----
-    print(f"✅ Total text chunks for embedding: {len(texts)}")
-    print("Sample text snippet:\n", "\n".join(texts[:3]))
+    # ---- Get embeddings ----
+    doc_embeddings = embed_texts(texts)
+    query_embedding = embed_query(query)
 
-    # ---- Embedding Phase ----
-    try:
-        doc_embs = embedder.encode(texts)
-        query_embs = embedder.encode(query)
-    except Exception as e:
-        print("Embedding error:", e)
-        return "Embedding service failed. Please try again later."
+    # ---- Compute cosine similarity manually ----
+    def cosine(a, b):
+        dot = sum(x*y for x, y in zip(a, b))
+        na = sum(x*x for x in a) ** 0.5
+        nb = sum(x*x for x in b) ** 0.5
+        return dot / (na * nb + 1e-10)
 
-    # ---- Compute Similarities ----
-    scores = cosine_similarity(doc_embs, query_embs.reshape(1, -1)).flatten()
+    scored = [(cosine(e, query_embedding), i) for i, e in enumerate(doc_embeddings)]
+    scored.sort(reverse=True)
 
-    top_k = min(5, len(scores))
-    top_idx = np.argpartition(scores, -top_k)[-top_k:]
-    top_idx = top_idx[np.argsort(scores[top_idx])[::-1]]
+    top_docs = [texts[i] for _, i in scored[:5]]
 
-    top_docs = [texts[i] for i in top_idx]
+    final_context = "\n".join(top_docs)
 
-    # ---- Build Final Prompt ----
-    context = "\n".join(top_docs)
-    prompt = (
-        f"Here is all relevant user data merged from the user's profile, history, and meals:\n\n"
-        f"{context}\n\n"
+    return (
+        f"Here is relevant user data:\n"
+        f"{final_context}\n\n"
         f"Question: {query}\n"
-        f"Answer concisely in natural language using only this data."
-        """Here is all relevant user data merged ...
-Question: What is my name?
-Answer concisely ...
-    If you don't have information about some thing. Scrape the internet for best result and then answer.
-    Remember to mention that information is from the internet to let the user know.
-    Always use internet scrape when asked for any suggestion.
-"""
+        f"Answer concisely based only on the data above."
     )
-
-    return prompt
-
-
