@@ -57,7 +57,7 @@ firebase_json = os.getenv("FIREBASE_CREDENTIALS")
 try:
     firebase_admin.get_app()
 except ValueError:
-    cred = credentials.Certificate(json.loads(firebase_json))
+    cred = credentials.Certificate("/etc/secrets/ournold-87a44-firebase-adminsdk-fbsvc-e1b57b1a85.json")
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -1036,4 +1036,5 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
+
 
