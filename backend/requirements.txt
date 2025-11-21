@@ -1,19 +1,28 @@
 fastapi
 uvicorn
 python-dotenv
+
+# Google / Gemini
 google-genai
-langchain-groq
 langchain-google-genai
+
+# Groq
+langchain-groq
+
+# Firebase / Firestore
 firebase-admin
-cloudinary
-requests
-pydantic
-annotated-types
-anyio
-protobuf
 google-api-core
 google-auth
 google-cloud-firestore
 google-cloud-storage
+protobuf
+
+# Utils
+requests
+cloudinary
+pydantic
+anyio
 httpx
 httpcore
+annotated-types
+python-multipart
