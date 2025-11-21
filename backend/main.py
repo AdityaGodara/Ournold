@@ -52,11 +52,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+firebase_json = os.getenv("FIREBASE_CREDENTIALS")
 # Initialize Firebase
 try:
     firebase_admin.get_app()
 except ValueError:
-    cred = credentials.Certificate(os.getenv("FIREBASE_CREDENTIALS"))
+    cred = credentials.Certificate(json.loads(firebase_json))
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -1035,3 +1036,4 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
+
