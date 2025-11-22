@@ -45,7 +45,7 @@ app = FastAPI()
 # Enable CORS (dev: allow all; change for production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://ournold.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1082,3 +1082,4 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
+
