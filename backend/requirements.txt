@@ -5,6 +5,7 @@ python-dotenv
 # Google / Gemini
 google-genai
 langchain-google-genai
+google-generativeai
 
 # Groq
 langchain-groq
@@ -26,5 +27,7 @@ httpx
 httpcore
 annotated-types
 python-multipart
+
+
 
 
