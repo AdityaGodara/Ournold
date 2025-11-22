@@ -5,10 +5,10 @@ from fastapi import FastAPI, HTTPException, Body, Query, BackgroundTasks
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Optional
 from google import genai
+from google.genai import types
 import requests
-import json
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -42,25 +42,108 @@ origins = [
 # Initialize FastAPI app
 app = FastAPI()
 
-# Enable CORS
+# Enable CORS (dev: allow all; change for production)
 app.add_middleware(
     CORSMiddleware,
-    # for dev — replace with specific domains in production
-    allow_origins=["https://ournold.vercel.app"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-firebase_json = os.getenv("FIREBASE_CREDENTIALS")
 # Initialize Firebase
+firebase_json = os.getenv("FIREBASE_CREDENTIALS")
 try:
     firebase_admin.get_app()
 except ValueError:
-    cred = credentials.Certificate("/etc/secrets/ournold-87a44-firebase-adminsdk-fbsvc-e1b57b1a85.json")
+    # If you store credentials as JSON in an env var, you can use:
+    # cred = credentials.Certificate(json.loads(firebase_json))
+    # Otherwise, fallback to file path (as before)
+    cred_path = os.getenv("FIREBASE_CRED_PATH", "/etc/secrets/ournold-87a44-firebase-adminsdk-fbsvc-e1b57b1a85.json")
+    if firebase_json:
+        cred = credentials.Certificate(json.loads(firebase_json))
+    else:
+        cred = credentials.Certificate(cred_path)
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
+
+# ---------- Helpers: timestamp parsing & safe sorting ----------
+
+
+def parse_timestamp(val) -> Optional[datetime]:
+    """
+    Accepts Firestore Timestamp-like objects (with to_datetime),
+    ISO strings, or datetime objects. Returns datetime (tz-aware UTC)
+    or None if invalid.
+    """
+    if val is None:
+        return None
+
+    # Firestore timestamp object
+    if hasattr(val, "to_datetime") and callable(getattr(val, "to_datetime")):
+        try:
+            dt = val.to_datetime()
+            # Ensure tz-aware (Firestore usually returns tz-aware)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            return None
+
+    # datetime instance
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            return val.replace(tzinfo=timezone.utc)
+        return val
+
+    # string ISO format
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return None
+        # Try several common iso variants
+        try:
+            # handle trailing Z
+            s_mod = s.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s_mod)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            # last resort: try to parse common formats
+            try:
+                # e.g., "2025-11-01T15:10:54.784"
+                dt = datetime.strptime(s.split(".")[0], "%Y-%m-%dT%H:%M:%S")
+                return dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+
+    # unknown type
+    return None
+
+
+def filter_and_sort_by_timestamp(items: List[Dict], key_name: str = "date", output_ts_field: Optional[str] = None) -> List[Dict]:
+    """
+    Filter out items with invalid timestamps (Option C) and return list sorted by timestamp ascending.
+    If output_ts_field is provided, replace that field's value with ISO formatted string.
+    """
+    parsed = []
+    for item in items:
+        raw = item.get(key_name)
+        dt = parse_timestamp(raw)
+        if dt is None:
+            # skip items with invalid timestamp (Option C)
+            continue
+        copy = item.copy()
+        if output_ts_field:
+            copy[output_ts_field] = dt.isoformat()
+        else:
+            copy[key_name] = dt.isoformat()
+        parsed.append((dt, copy))
+    parsed.sort(key=lambda x: x[0])
+    return [p[1] for p in parsed]
+
 
 # ----------------------------- BMI ROUTE -----------------------------
 
@@ -177,35 +260,51 @@ def get_bmr(user_id: str):
 @app.get("/api/user/weight/{user_id}")
 async def get_user_weight(user_id: str):
     try:
-        history_ref = db.collection("users").document(
-            user_id).collection("history")
+        history_ref = db.collection("users").document(user_id).collection("history")
         docs = history_ref.stream()
         data = []
 
         for doc in docs:
-            entry = doc.to_dict()
+            entry = doc.to_dict() or {}
+            # Only accept entries that have weight and a valid timestamp
+            ts = entry.get("timestamp")
+            dt = parse_timestamp(ts)
+            if dt is None:
+                continue  # Option C: skip invalid timestamps
             if "weight" in entry:
                 data.append({
-                    "date": entry.get("timestamp"),
+                    "date": dt,  # keep datetime for sorting helper
                     "weight": entry.get("weight"),
                 })
 
-        data.sort(key=lambda x: x["date"])
-        return {"data": data}
+        # Convert and sort using helper (it expects items with 'date' key as datetime-like)
+        # Prepare list with raw datetime objects stored under 'date', filter already done
+        # Now convert to iso strings and sort
+        formatted = []
+        for item in data:
+            dt = item["date"]
+            formatted.append({
+                "date": dt.isoformat(),
+                "weight": item["weight"]
+            })
+        # sort by date ascending
+        formatted.sort(key=lambda x: x["date"])
+        return {"data": formatted}
 
     except Exception as e:
+        print("Error in get_user_weight:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ----------------------------- MEAL HISTORY -----------------------------
-
-
 @app.get("/api/user/meals/{user_id}")
 async def get_user_meals(user_id: str):
     try:
-        # 1️⃣ Fetch only latest 5 meals (ordered by timestamp descending)
+        # 1️⃣ Fetch only latest 5 meals (ordered by timestamp descending) from Firestore
         meals_ref = db.collection("users").document(user_id).collection("meals")
-        docs = meals_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(5).stream()
-        
+        docs = meals_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(20).stream()
+
         firestore_data = health_summary(user_id)
 
         latest_meals = []
@@ -215,24 +314,35 @@ async def get_user_meals(user_id: str):
                 continue
 
             ts = entry.get("timestamp")
-            if hasattr(ts, "to_datetime"):
-                dt = ts.to_datetime()
-            else:
-                dt = ts or datetime(1970, 1, 1)
+            dt = parse_timestamp(ts)
+            if dt is None:
+                # Option C: skip entries without valid timestamps
+                continue
 
             latest_meals.append({
                 "doc_id": doc.id,
                 "meal_name": entry.get("meal_name"),
                 "meal_time": entry.get("meal_time"),
-                "timestamp": dt,
+                "timestamp": dt,  # keep datetime for now
                 "cals": entry.get("cals"),
                 "carbs": entry.get("carbs"),
                 "fats": entry.get("fat"),
                 "protein": entry.get("protein"),
             })
 
+        # If no meals after filtering, return empty array
         if not latest_meals:
             return {"data": []}
+
+        # Sort by timestamp descending (most recent first)
+        latest_meals.sort(key=lambda x: x["timestamp"], reverse=True)
+        # Keep only the top 5 after sorting
+        latest_meals = latest_meals[:5]
+
+        # Convert timestamp -> iso string
+        for m in latest_meals:
+            if isinstance(m["timestamp"], datetime):
+                m["timestamp"] = m["timestamp"].isoformat()
 
         # 2️⃣ Prepare items for prompt
         items_for_prompt = [
@@ -306,8 +416,8 @@ Return ONLY a valid JSON array like this:
         # 7️⃣ Map results
         rating_map = {
             str(item.get("doc_id")): {
-                "rating": item.get("rating", "").strip().lower(),
-                "rating_explain": item.get("rating_explain", "").strip()
+                "rating": (item.get("rating") or "").strip().lower(),
+                "rating_explain": (item.get("rating_explain") or "").strip()
             }
             for item in ratings if isinstance(item, dict)
         }
@@ -316,8 +426,6 @@ Return ONLY a valid JSON array like this:
         merged = []
         for m in latest_meals:
             out = m.copy()
-            if hasattr(out["timestamp"], "isoformat"):
-                out["timestamp"] = out["timestamp"].isoformat()
             match = rating_map.get(out["doc_id"])
             if match:
                 out.update(match)
@@ -325,33 +433,49 @@ Return ONLY a valid JSON array like this:
 
         return {"data": merged}
 
+    except HTTPException:
+        raise
     except Exception as e:
+        print("Error in get_user_meals:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ----------------------------- BMI GRAPH -----------------------------
-
-
 @app.get("/api/user/{user_id}/bmiGraph")
 async def get_user_bmi(user_id: str):
     try:
-        history_ref = db.collection("users").document(
-            user_id).collection("history")
+        history_ref = db.collection("users").document(user_id).collection("history")
         docs = history_ref.stream()
         data = []
 
         for doc in docs:
-            entry = doc.to_dict()
-            if "bmi" in entry:
-                data.append({
-                    "date": entry.get("timestamp"),
-                    "bmi": entry.get("bmi"),
-                })
+            entry = doc.to_dict() or {}
+            if "bmi" not in entry:
+                continue
+            ts = entry.get("timestamp")
+            dt = parse_timestamp(ts)
+            if dt is None:
+                continue  # Option C: skip
+            data.append({
+                "date": dt,
+                "bmi": entry.get("bmi"),
+            })
 
-        data.sort(key=lambda x: x["date"])
-        return {"data": data}
+        # Format and sort
+        formatted = []
+        for item in data:
+            formatted.append({
+                "date": item["date"].isoformat(),
+                "bmi": item["bmi"]
+            })
+        formatted.sort(key=lambda x: x["date"])
+
+        return {"data": formatted}
 
     except Exception as e:
+        print("Error in get_user_bmi:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -498,47 +622,65 @@ also provide stylish markdown to improve answer presentation.
         return {"answer": answer.content}
 
     except Exception as e:
+        print("Error in /api/ask:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-# genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-
+# ---------- Analyze food (safe image fetch + better errors) ----------
 @app.post("/api/analyze_food")
 async def analyze_food(image_url: str = Query(...)):
     try:
-        # Fetch the image safely
-        resp = requests.get(image_url, stream=True, allow_redirects=True)
-        resp.raise_for_status()
+        if not image_url:
+            raise HTTPException(status_code=400, detail="image_url is required")
 
-        mime_type = resp.headers.get("Content-Type", "image/jpeg")
+        # ---- Fetch image safely ----
+        try:
+            resp = requests.get(image_url, stream=True, timeout=10)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch image: {str(e)}")
+
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=400, detail=f"Image fetch failed: {resp.status_code}")
+
+        mime_type = resp.headers.get("Content-Type", "").lower()
+        if not mime_type.startswith("image/"):
+            mime_type = "image/jpeg"
+
         img_bytes = resp.content
-
-        if len(img_bytes) < 100:
-            raise HTTPException(
-                status_code=400, detail="Downloaded image is too small or empty")
+        if len(img_bytes) < 200:
+            raise HTTPException(status_code=400, detail="Image too small or invalid")
 
         prompt = (
-            "Analyze this food image and quantity and return a JSON like: "
+            "Analyze this food image and quantify macros. "
+            "Return strictly JSON: "
             '{"food_name":"...", "total_calories":..., "protein_g":..., "carbs_g":..., "fat_g":...}'
-            "Just provide json as output and nothing else."
         )
 
+        # ---- FIXED new Gemini API format ----
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
         response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-            prompt,
-            {"mime_type": mime_type, "data": img_bytes}
-        ]
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part(text=prompt),
+                types.Part.from_bytes(mime_type=mime_type, data=img_bytes)
+            ]
         )
 
-        return {"analysis": response.text}
+        text = response.text or response.candidates[0].content.parts[0].text
 
+        return {"analysis": text}
 
+    except HTTPException:
+        raise
     except Exception as e:
+        print("analyze_food error:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# Cloudinary config
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
     api_key=os.getenv("CLOUDINARY_API_KEY"),
@@ -556,6 +698,8 @@ async def delete_temp_image(public_id: str = Query(...)):
             raise HTTPException(
                 status_code=400, detail=f"Cloudinary deletion failed: {result}")
     except Exception as e:
+        print("Error deleting temp image:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -626,14 +770,17 @@ JSON OUTPUT STRUCTURE:
         return meal_data
 
     except json.JSONDecodeError:
-        return {"error": "Model did not return valid JSON.", "raw_output": response.content}
+        return {"error": "Model did not return valid JSON.", "raw_output": getattr(response, "content", None)}
     except Exception as e:
+        print("Error in get_today_food:", e)
+        traceback.print_exc()
         return {"error": str(e)}
+
 
 @app.get("/api/user/todayNutrition/{user_id}")
 async def get_today_nutrition(user_id: str):
     try:
-        # Get today's date range (00:00:00 → 23:59:59 in local timezone)
+        # Get today's date range (00:00:00 → 23:59:59 in UTC)
         now = datetime.now(timezone.utc)
         start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
         end_of_day = start_of_day + timedelta(days=1)
@@ -643,28 +790,27 @@ async def get_today_nutrition(user_id: str):
         data = []
 
         for doc in docs:
-            entry = doc.to_dict()
+            entry = doc.to_dict() or {}
             timestamp = entry.get("timestamp")
 
-            # Parse timestamp if it's a Firestore Timestamp or string
-            if timestamp:
-                if hasattr(timestamp, "to_datetime"):
-                    timestamp = timestamp.to_datetime()
-                elif isinstance(timestamp, str):
-                    timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            dt = parse_timestamp(timestamp)
+            if not dt:
+                continue
 
-                # Filter only today's meals
-                if start_of_day <= timestamp < end_of_day:
-                    data.append({
-                        "calories": entry.get("cals", 0),
-                        "protein": entry.get("protein", 0),
-                        "carbs": entry.get("carbs", 0),
-                        "fat": entry.get("fat", 0)
-                    })
+            # Filter only today's meals
+            if start_of_day <= dt < end_of_day:
+                data.append({
+                    "calories": entry.get("cals", 0),
+                    "protein": entry.get("protein", 0),
+                    "carbs": entry.get("carbs", 0),
+                    "fat": entry.get("fat", 0)
+                })
 
         return {"data": data}
 
     except Exception as e:
+        print("Error in get_today_nutrition:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -676,36 +822,26 @@ def get_macro_history(user_id: str) -> Dict:
         history_ref = db.collection("users").document(user_id).collection("meals")
         docs = history_ref.stream()
 
-        protein_total = 0
-        carbs_total = 0
-        fats_total = 0
+        protein_total = 0.0
+        carbs_total = 0.0
+        fats_total = 0.0
         entry_count = 0
 
         for doc in docs:
-            entry = doc.to_dict()
+            entry = doc.to_dict() or {}
             timestamp = entry.get("timestamp")
 
-            if not timestamp:
+            dt = parse_timestamp(timestamp)
+            if not dt:
                 continue
 
-            # Handle different timestamp types
-            if hasattr(timestamp, "to_datetime"):  # Firestore Timestamp
-                entry_date = timestamp.to_datetime().date()
-            elif isinstance(timestamp, datetime):
-                entry_date = timestamp.date()
-            elif isinstance(timestamp, str):
-                try:
-                    entry_date = datetime.fromisoformat(timestamp).date()
-                except:
-                    continue
-            else:
-                continue
+            entry_date = dt.date()
 
             # Filter only last 1 year
             if one_year_ago <= entry_date <= today:
-                protein_total += float(entry.get("protein", 0))
-                carbs_total += float(entry.get("carbs", 0))
-                fats_total += float(entry.get("fat", 0))
+                protein_total += float(entry.get("protein", 0) or 0)
+                carbs_total += float(entry.get("carbs", 0) or 0)
+                fats_total += float(entry.get("fat", 0) or 0)
                 entry_count += 1
 
         if entry_count == 0:
@@ -721,14 +857,16 @@ def get_macro_history(user_id: str) -> Dict:
 
     except Exception as e:
         print("Error fetching macro history:", e)
+        traceback.print_exc()
         return {"error": str(e)}
-
 
 
 SPOON_KEY = os.getenv("SPOONACULAR_API_KEY", "YOUR_SPOONACULAR_KEY_HERE")
 
+
 class QueryBody(BaseModel):
     name: str
+
 
 @app.post("/api/macros")
 def fetch_macros(body: QueryBody):
@@ -798,23 +936,16 @@ def fetch_macros(body: QueryBody):
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Network/requests error: {str(e)}")
     except Exception as e:
+        print("Error in /api/macros:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/user/proteinHistory/{user_id}")
 async def get_protein_history(user_id: str):
     """
     Fetch protein consumption history for a user from Firebase.
     Returns daily protein intake data for the past 30 days.
-    
-    Firestore structure:
-    users/{user_id}/meals/{meal_id}/
-      - timestamp: string (ISO format "2025-11-09T11:45:38.332Z")
-      - protein: number
-      - carbs: number
-      - fat: number
-      - cals: number
-      - meal_name: string
-      - meal_time: string
     """
     try:
         if not user_id:
@@ -823,141 +954,56 @@ async def get_protein_history(user_id: str):
         # Calculate date range (last 30 days)
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=30)
-        
+
         # Query all meals (can't filter string timestamps in Firestore)
         meals_ref = db.collection("users").document(user_id).collection("meals")
         meals_docs = meals_ref.stream()
-        
+
         # Aggregate protein by date
         daily_protein: Dict[str, float] = {}
-        
+
         for doc in meals_docs:
             try:
-                data = doc.to_dict()
-                if not data:
+                data_doc = doc.to_dict() or {}
+                if not data_doc:
                     continue
-                    
-                timestamp_str = data.get("timestamp")
-                protein = data.get("protein", 0)
-                
-                if not timestamp_str or protein is None:
+
+                timestamp_val = data_doc.get("timestamp")
+                protein = data_doc.get("protein", 0)
+
+                dt = parse_timestamp(timestamp_val)
+                if not dt or protein is None:
                     continue
-                
-                # Parse ISO format timestamp string
-                # Remove 'Z' and handle timezone
-                clean_timestamp = timestamp_str.replace('Z', '+00:00')
-                meal_datetime = datetime.fromisoformat(clean_timestamp)
-                
-                # Make timezone-aware if not already
-                if meal_datetime.tzinfo is None:
-                    meal_datetime = meal_datetime.replace(tzinfo=timezone.utc)
-                
+
                 # Check if within date range
-                if start_date <= meal_datetime <= end_date:
-                    date_str = meal_datetime.strftime("%Y-%m-%d")
+                if start_date <= dt <= end_date:
+                    date_str = dt.strftime("%Y-%m-%d")
                     protein_val = float(protein)
-                    
-                    if date_str in daily_protein:
-                        daily_protein[date_str] += protein_val
-                    else:
-                        daily_protein[date_str] = protein_val
-                        
+                    daily_protein[date_str] = daily_protein.get(date_str, 0.0) + protein_val
+
             except (ValueError, AttributeError, TypeError) as e:
                 print(f"Error processing document {doc.id}: {e}")
+                traceback.print_exc()
                 continue
-        
-        # Convert to list and sort by date
+
+        # Convert to list and sort by date (ascending)
         protein_data = [
             {"date": date, "protein": round(protein, 2)}
             for date, protein in sorted(daily_protein.items())
         ]
-        
+
         return {"data": protein_data}
-        
+
     except Exception as e:
         print(f"Error fetching protein history for user {user_id}: {str(e)}")
-        import traceback
         traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch protein history: {str(e)}"
         )
-@app.get("/api/user/bodyInsights/{user_id}")
-def get_body_insights(user_id: str):
-    """
-    Returns 5 hidden and useful body/workout insights based on user stats.
-    """
 
-    try:
-        # Fetch user stats from Firestore
-        data = fetch_req_cal_firestore(user_id)  # Should return dict
 
-        # Gemini client
-        chat = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.4,
-            api_key=os.getenv("GEMINI_API_KEY"),
-        )
-
-        # AI prompt
-        template = f"""
-        You are a world-class fitness coach.
-
-        Based on this user’s body data, generate **5 hidden, surprising, and highly actionable insights**
-        about their fitness, metabolism, risks, strengths, or workout strategy.
-
-        Data:
-        - Goal: {data.get('goal')}
-        - Height: {data.get('height')}
-        - Weight: {data.get('weight')}
-        - Gender: {data.get('gender')}
-        - Age: {data.get('age')}
-        - Body Fat %: {data.get('body_fat')}
-        - Exercise Intensity: {data.get('exercise_intensity')}
-        - Maintenance Calorie: {data.get('mCal')}
-        - BMI: {data.get('bmi')}
-        - BMR: {data.get('bmr')}
-
-        ⚠ Only return JSON. No explanation text.
-
-        Return this JSON format:
-        {{
-            "insights": [
-                {{
-                    "title": "<short title>",
-                    "description": "<2–3 lines explaining why it's important>"
-                }},
-                ...
-            ]
-        }}
-        """
-
-        response = chat.invoke(template)
-
-        # Parse JSON safely
-        try:
-            ai_data = json.loads(response.content)
-        except json.JSONDecodeError:
-            content = response.content.strip()
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            if start != -1 and end != 0:
-                ai_data = json.loads(content[start:end])
-            else:
-                ai_data = {"insights": []}
-
-        return {
-            "insights": ai_data.get("insights", [])
-        }
-
-    except Exception as e:
-        print(f"Error in get_body_insights: {str(e)}")
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing request: {str(e)}"
-        )
-
+# ----------------------------- BODY INSIGHTS (single endpoint only) -----------------------------
 @app.get("/api/user/bodyInsights/{user_id}")
 def get_body_insights(user_id: str):
     """
@@ -981,7 +1027,7 @@ def get_body_insights(user_id: str):
 
         Based on this user’s body data, generate **5 hidden, surprising, and highly actionable insights**
         about their fitness, metabolism, risks, strengths, or workout strategy. Don't explain too much.
-        Kepp it crisp, honest and fun to read.
+        Keep it crisp, honest and fun to read.
 
         Data:
         - Goal: {data.get('goal')}
@@ -1036,7 +1082,3 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
-
-
-
-
