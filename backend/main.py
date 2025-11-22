@@ -36,7 +36,7 @@ load_dotenv()
 origins = [
     "http://localhost:3000",  # local Next.js
     "http://127.0.0.1:3000",
-    # "https://your-production-domain.com"
+    "https://ournold.vercel.app"
 ]
 
 # Initialize FastAPI app
@@ -46,7 +46,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     # for dev — replace with specific domains in production
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["https://ournold.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1036,5 +1036,7 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
+
+
 
 
