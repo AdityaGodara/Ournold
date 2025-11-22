@@ -1,5 +1,3 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
 ## OURNOLD : The Watcher of your Fitness
 <img width="1916" height="863" alt="image" src="https://github.com/user-attachments/assets/30e1ffdf-96b6-4e56-a3b5-17875e3fc2c3" />
 
@@ -13,35 +11,19 @@ Ournold provides guidance in mainly three fields.
 Ournold can also chat!
 Users can have a conversational guidance with clarity. (Tries to be clear, tbh)
 
-First, run the development server:
+### Tech Stack used:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+<li><b>Frontend: </b>Next.Js</li>
+<li><b>Backend: </b> Python/FastAPI</li>
+<li><b>Database: </b> Firebase Firestore</li>
+<li><b>LLM: </b> Gemini and Gemini Embeddings</li>
+<li><b>Technologies: </b> Langchain, RAG</li>
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+I hope you like this project of mine! <3
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Screenshots
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+<img width="555" height="737" alt="image" src="https://github.com/user-attachments/assets/b6943ef9-1be7-4b33-810f-4c33fc733c46" />
+<img width="1286" height="698" alt="image" src="https://github.com/user-attachments/assets/7d7e8278-f7bb-4b7e-858b-01e44145e875" />
+<img width="1915" height="880" alt="image" src="https://github.com/user-attachments/assets/ff22d39b-407a-4391-be6b-588eef82aea0" />
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
