@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException
 import firebase_admin
 from firebase_admin import credentials, firestore
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -21,19 +21,28 @@ except ValueError:
 
 db = firestore.client()
 
-# ============= EMBEDDING MODEL (GOOGLE) =============
-embedder = GoogleGenerativeAIEmbeddings(
-    model="models/embedding-001",
-    api_key=os.getenv("GEMINI_API_KEY")
-)
+# ============= EMBEDDING MODEL (GOOGLE GENAI) =============
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 def embed_texts(texts):
-    return embedder.embed_documents(texts)
+    """Embed multiple texts using Google's embedding model."""
+    result = genai.embed_content(
+        model="models/text-embedding-004",
+        content=texts,
+        task_type="retrieval_document"
+    )
+    return result['embedding'] if len(texts) == 1 else [e for e in result['embedding']]
 
 
 def embed_query(q):
-    return embedder.embed_query(q)
+    """Embed a single query using Google's embedding model."""
+    result = genai.embed_content(
+        model="models/text-embedding-004",
+        content=q,
+        task_type="retrieval_query"
+    )
+    return result['embedding']
 
 
 # ============= FETCH FUNCTIONS =============
@@ -224,7 +233,16 @@ def ans_query_on_demand(user_id: str, query: str):
         return "No user data exists."
 
     # ---- Get embeddings ----
-    doc_embeddings = embed_texts(texts)
+    # Embed each document separately to handle batch processing properly
+    doc_embeddings = []
+    for text in texts:
+        result = genai.embed_content(
+            model="models/text-embedding-004",
+            content=text,
+            task_type="retrieval_document"
+        )
+        doc_embeddings.append(result['embedding'])
+    
     query_embedding = embed_query(query)
 
     # ---- Compute cosine similarity manually ----
