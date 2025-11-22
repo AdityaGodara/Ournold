@@ -1,6 +1,17 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
+## OURNOLD : The Watcher of your Fitness
+<img width="1916" height="863" alt="image" src="https://github.com/user-attachments/assets/30e1ffdf-96b6-4e56-a3b5-17875e3fc2c3" />
+
+Hosted Link: https://ournold.vercel.app
+
+Ournold is a Gen AI based fitness and health app that helps it's users to achieve their goals by taking in consider a user's almost every factor that can affect his health or decisions regarding it.
+Ournold provides guidance in mainly three fields.
+<li>General health</li>
+<li>Food/Diet</li>
+<li>and, Workout</li>
+Ournold can also chat!
+Users can have a conversational guidance with clarity. (Tries to be clear, tbh)
 
 First, run the development server:
 
