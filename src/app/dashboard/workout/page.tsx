@@ -40,7 +40,7 @@ export default function page() {
     const fetchInsights = async () => {
       try {
         const res = await axios.get(
-          `http://localhost:8000/api/user/bodyInsights/${userData.uid}`,
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/bodyInsights/${userData.uid}`,
           { withCredentials: true }
         );
         setInsights(res.data.insights);

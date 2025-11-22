@@ -57,7 +57,7 @@ export default function MacrosForm() {
     setMacros(null);
 
     try {
-      const res = await axios.post("http://localhost:8000/api/macros", { name: query.trim() });
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/macros`, { name: query.trim() });
       const data = res.data;
       if (data.error) {
         setError(typeof data.error === "string" ? data.error : JSON.stringify(data.error));

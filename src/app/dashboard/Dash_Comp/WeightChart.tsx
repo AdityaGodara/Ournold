@@ -30,7 +30,7 @@ export default function WeightChart() {
             }
             try {
                 const res = await axios.get<{ data: Array<{ date: string; weight: number | string }> }>(
-                    `http://localhost:8000/api/user/weight/${userData.uid}`
+                    `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/weight/${userData.uid}`
                 );
 
                 const normalized: WeightEntry[] = (res.data.data || [])

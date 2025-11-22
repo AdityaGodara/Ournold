@@ -36,7 +36,7 @@ export default function MCal() {
                     console.log("Fetching req_cal_intake from API...");
 
                     // Call API to get ideal_bmi
-                    const res = await axios.get(`http://localhost:8000/api/user/reqCal/${userData.uid}`);
+                    const res = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/reqCal/${userData.uid}`);
 
                     // Update state with API response
                     setAiRes(res.data);

@@ -82,7 +82,7 @@ export default function CloudinaryUpload() {
 
       // 2️⃣ Analyze using FastAPI
       const fastRes = await axios.post(
-        `http://localhost:8000/api/analyze_food?image_url=${encodeURIComponent(imageUrl)}`
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/analyze_food?image_url=${encodeURIComponent(imageUrl)}`
       );
 
       const raw = fastRes.data.analysis;
@@ -122,7 +122,7 @@ export default function CloudinaryUpload() {
       });
 
       if (publicID) {
-        await axios.delete("http://localhost:8000/api/delete_temp_image", {
+        await axios.delete(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/delete_temp_image`, {
           params: { public_id: publicID },
         });
       }
@@ -143,7 +143,7 @@ export default function CloudinaryUpload() {
 
     if (publicID) {
       try {
-        await axios.delete("http://localhost:8000/api/delete_temp_image", {
+        await axios.delete(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/delete_temp_image`, {
           params: { public_id: publicID },
         });
       } catch (err) {

@@ -37,7 +37,7 @@ function Bmi() {
                     console.log("Fetching ideal_bmi from API...");
 
                     // Call API to get ideal_bmi
-                    const res = await axios.get(`http://localhost:8000/api/user/${userData.uid}/bmi`);
+                    const res = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/${userData.uid}/bmi`);
 
                     // Update state with API response
                     setAiRes(res.data);

@@ -34,7 +34,7 @@ export default function ProteinChart() {
       try {
         setLoading(true);
         const res = await axios.get<{ data: ProteinDataPoint[] }>(
-          `http://localhost:8000/api/user/proteinHistory/${userData.uid}`
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/proteinHistory/${userData.uid}`
         );
 
         const proteinData = res.data.data;

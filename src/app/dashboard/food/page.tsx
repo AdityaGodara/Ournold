@@ -94,7 +94,7 @@ export default function FoodPage() {
             if (!userData?.uid) return;
             try {
                 const res = await axios.get(
-                    `http://localhost:8000/api/user/meals/${userData.uid}`
+                    `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/meals/${userData.uid}`
                 );
                 if (res.data?.data) setMealData(res.data.data);
             } catch (error) {
@@ -129,7 +129,7 @@ export default function FoodPage() {
                 // If no cache or it's a new day, fetch fresh data
                 console.log("🔄 Fetching fresh today's food data...");
                 const res = await axios.get(
-                    `http://localhost:8000/api/todayFood/${userData.uid}`
+                    `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/todayFood/${userData.uid}`
                 );
 
                 if (res.data?.meal_plan) {

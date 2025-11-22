@@ -32,7 +32,7 @@ export default function BMIChart() {
             try {
                 const res = await axios.get<{
                     data: Array<{ date: string; bmi: number | string }>;
-                }>(`http://localhost:8000/api/user/${userData.uid}/bmiGraph`, {
+                }>(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/${userData.uid}/bmiGraph`, {
                     withCredentials: true,
                 });
 

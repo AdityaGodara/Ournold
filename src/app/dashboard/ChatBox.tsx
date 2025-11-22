@@ -69,7 +69,7 @@ export default function ChatBox({convo}: {convo: string}) {
 
       // ✅ Send message to FastAPI
       const res = await axios.post(
-        "http://localhost:8000/api/ask",
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/ask`,
         {
           user_id: user.uid,
           query: input,

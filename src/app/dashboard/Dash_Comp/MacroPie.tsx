@@ -28,7 +28,7 @@ export default function MacroPie() {
       try {
         setLoading(true);
         const res = await axios.get<{ data: MacroData }>(
-          `http://localhost:8000/api/user/macroHistory/${userData.uid}`
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/macroHistory/${userData.uid}`
         );
         setData(res.data.data);
       } catch (err) {

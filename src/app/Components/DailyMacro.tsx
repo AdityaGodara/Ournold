@@ -28,7 +28,7 @@ export default function DailyMacro() {
       try {
         setLoading(true);
         const res = await axios.get(
-          `http://localhost:8000/api/user/todayNutrition/${userData.uid}`
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/user/todayNutrition/${userData.uid}`
         );
 
         const data = res.data?.data || [];
