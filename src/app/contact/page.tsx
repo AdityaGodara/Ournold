@@ -18,7 +18,7 @@ export default function page() {
     const items = [
         {
             image: 'ournold_logo.png',
-            link: '',
+            link: 'https://ournold.vercel.app/',
             title: 'OURNOLD',
             description: 'The watcher of your fitness!'
         },
