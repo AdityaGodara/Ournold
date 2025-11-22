@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException
 import firebase_admin
 from firebase_admin import credentials, firestore
-from langchain_groq import GroqEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 load_dotenv()
 
@@ -21,10 +21,10 @@ except ValueError:
 
 db = firestore.client()
 
-# ============= EMBEDDING MODEL (GROQ) =============
-embedder = GroqEmbeddings(
-    model="text-embedding-3-small",
-    api_key=os.getenv("GROQ_API_KEY")
+# ============= EMBEDDING MODEL (GOOGLE) =============
+embedder = GoogleGenerativeAIEmbeddings(
+    model="models/embedding-001",
+    api_key=os.getenv("GEMINI_API_KEY")
 )
 
 
