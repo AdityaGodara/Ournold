@@ -72,7 +72,7 @@ export default function HeroSection() {
       setFactEnabled(false);
       setRandFact("Picking a random fact...");
 
-      const res = await axios.get<{ fact: string }>("http://localhost:8000/api/randomFact");
+      const res = await axios.get<{ fact: string }>(`${process.env.NEXT_BACKEND_URL}/api/randomFact`);
 
       if (res && res.data && res.data.fact) {
         setRandFact(res.data.fact);
