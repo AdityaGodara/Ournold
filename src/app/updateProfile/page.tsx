@@ -28,7 +28,8 @@ export default function Page() {
         explain_goal: "",
         budget: "",
         body_type: "",
-        exercise_intensity: ""
+        exercise_intensity: "",
+        api_key: ""
     });
 
     const calculateAge = (dobString: any) => {
@@ -51,6 +52,7 @@ export default function Page() {
                 budget: userData.currentData.budget ?? "",
                 body_type: userData.currentData.body_type ?? "",
                 exercise_intensity: userData.currentData.exercise_intensity ?? ""
+                api_key: userData.gemini_api ?? ""
             });
         }
     }, [userData]);
@@ -90,6 +92,7 @@ export default function Page() {
             diet: form.diet,
             height: form.height,
             updatedAt: new Date().toISOString(),
+            gemini_api: form.api_key,
 
             currentData: {
                 weight: form.weight,
@@ -239,7 +242,15 @@ export default function Page() {
                         <option className="bg-black" value="regular">Regular</option>
                         <option className="bg-black" value="student">Student / Athlete</option>
                     </select>
-
+                    
+                    <label className="text-lg">API Key</label>
+                    <input
+                        type="password"
+                        name="api_key"
+                        value={form.api_key}
+                        onChange={handleChange}
+                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
+                    />
                     <button
                         type="submit"
                         className="mt-5 py-3 bg-white/20 hover:bg-white/30 transition rounded-xl text-xl"
