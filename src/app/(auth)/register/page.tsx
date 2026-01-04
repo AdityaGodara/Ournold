@@ -38,7 +38,8 @@ interface UserData {
     maintenanceCalories: number;
     ideal_bmi : number | string;
     req_cal_intake: string;
-    ideal_bmr: number | string
+    ideal_bmr: number | string;
+    api_key: string;
 }
 
 interface PopupMessage {
@@ -71,7 +72,8 @@ export default function Page() {
         maintenanceCalories: 0,
         ideal_bmi: '',
         ideal_bmr: '',
-        req_cal_intake: ''
+        req_cal_intake: '',
+        api_key: ''
     });
 
     const [createUserWithEmailAndPassword] = useCreateUserWithEmailAndPassword(auth);
@@ -221,6 +223,7 @@ export default function Page() {
                     dob: user.dob,
                     gender: user.gender,
                     diet: user.diet,
+                    gemini_api: user.api_key,
                     currentData: {
                         weight: user.weight,
                         height: user.height,
@@ -548,6 +551,17 @@ export default function Page() {
                                     cols={100}
                                     rows={6}
                                     className='border-2 border-stone-50 p-2 rounded-xl resize-none'
+                                />
+                            </div>
+                            <div>
+                            <input
+                                    type="text"
+                                    name="api_key"
+                                    placeholder='Enter you GEMINI API KEY here'
+                                    value={user.api_key}
+                                    onChange={(e) => setUser({ ...user, api_key: e.target.value })}
+                                    className='border-1 w-[50%] rounded-md border-stone-50 px-3 py-1 outline-none min-w-sm'
+                                    required
                                 />
                             </div>
                         </motion.form>
