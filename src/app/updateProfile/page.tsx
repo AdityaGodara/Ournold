@@ -51,7 +51,7 @@ export default function Page() {
                 explain_goal: userData.currentData.explain_goal ?? "",
                 budget: userData.currentData.budget ?? "",
                 body_type: userData.currentData.body_type ?? "",
-                exercise_intensity: userData.currentData.exercise_intensity ?? ""
+                exercise_intensity: userData.currentData.exercise_intensity ?? "",
                 api_key: userData.gemini_api ?? ""
             });
         }
