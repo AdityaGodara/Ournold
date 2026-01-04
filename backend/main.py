@@ -1,6 +1,7 @@
 import os
 import json
 import traceback
+import time
 from fastapi import FastAPI, HTTPException, Body, Query, BackgroundTasks
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,8 +68,52 @@ except ValueError:
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-
+Gemini_API = db.collections("users")
 # ---------- Helpers: timestamp parsing & safe sorting ----------
+_GEMINI_KEY_CACHE: Dict[str, Tuple[str, float]] = {}
+
+# Cache TTL in seconds (e.g. 3 hours)
+GEMINI_KEY_TTL = 3 * 60 * 60  # 3 hours
+
+def get_gemini_api_key(user_id: str) -> str:
+    """
+    Fetch Gemini API key for a user with TTL-based caching.
+    Cache auto-expires after GEMINI_KEY_TTL seconds.
+    """
+
+    now = time.time()
+
+    # 1️⃣ Check cache
+    cached = _GEMINI_KEY_CACHE.get(user_id)
+    if cached:
+        api_key, expiry = cached
+        if now < expiry:
+            return api_key
+        else:
+            # expired → remove
+            _GEMINI_KEY_CACHE.pop(user_id, None)
+
+    # 2️⃣ Fetch from Firestore
+    doc = db.collection("users").document(user_id).get()
+
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    gemini_api = doc.to_dict().get("gemini_api")
+
+    if not gemini_api:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API key not configured for user"
+        )
+
+    # 3️⃣ Store in cache
+    _GEMINI_KEY_CACHE[user_id] = (
+        gemini_api,
+        now + GEMINI_KEY_TTL
+    )
+
+    return gemini_api
 
 
 def parse_timestamp(val) -> Optional[datetime]:
@@ -151,11 +196,12 @@ def filter_and_sort_by_timestamp(items: List[Dict], key_name: str = "date", outp
 @app.get("/api/user/{user_id}/bmi")
 def get_bmi(user_id: str):
     try:
+        api_key = get_gemini_api_key(user_id)
         data = fetch_bmi_firestore(user_id)
-        chat = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.4,
-            api_key=os.getenv("GROQ_API_KEY"),
+        chat = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0.2,
+            api_key=api_key,
         )
 
         template = f"""
@@ -203,11 +249,12 @@ def get_bmi(user_id: str):
 @app.get("/api/user/{user_id}/bmr")
 def get_bmr(user_id: str):
     try:
+        api_key = get_gemini_api_key(user_id)
         data = fetch_bmr_firestore(user_id)
         chat = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0.4,
-            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key=api_key,
         )
 
         template = f"""
@@ -260,6 +307,7 @@ def get_bmr(user_id: str):
 @app.get("/api/user/weight/{user_id}")
 async def get_user_weight(user_id: str):
     try:
+        api_key = get_gemini_api_key(user_id)
         history_ref = db.collection("users").document(user_id).collection("history")
         docs = history_ref.stream()
         data = []
@@ -301,6 +349,7 @@ async def get_user_weight(user_id: str):
 @app.get("/api/user/meals/{user_id}")
 async def get_user_meals(user_id: str):
     try:
+        api_key = get_gemini_api_key(user_id)
         # 1️⃣ Fetch only latest 5 meals (ordered by timestamp descending) from Firestore
         meals_ref = db.collection("users").document(user_id).collection("meals")
         docs = meals_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(20).stream()
@@ -361,7 +410,7 @@ async def get_user_meals(user_id: str):
         chat = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0,
-            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key=api_key,
         )
 
         # 4️⃣ Enhanced Goal-Aware Prompt
@@ -445,6 +494,7 @@ Return ONLY a valid JSON array like this:
 @app.get("/api/user/{user_id}/bmiGraph")
 async def get_user_bmi(user_id: str):
     try:
+        
         history_ref = db.collection("users").document(user_id).collection("history")
         docs = history_ref.stream()
         data = []
@@ -483,11 +533,12 @@ async def get_user_bmi(user_id: str):
 @app.get("/api/user/reqCal/{user_id}")
 def get_user_cal(user_id: str):
     try:
+        api_key = get_gemini_api_key(user_id)
         data = fetch_req_cal_firestore(user_id)
         chat = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0.4,
-            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key=api_key,
         )
 
         template = f"""
@@ -536,10 +587,11 @@ def get_user_cal(user_id: str):
 
 @app.get("/api/randomFact")
 def get_random_fact():
+    api_key = get_gemini_api_key(user_id)
     chat = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         temperature="0.6",
-        api_key=os.getenv("GEMINI_API_KEY")
+        api_key=api_key
     )
 
     prompt = """
@@ -583,6 +635,7 @@ class AskRequest(BaseModel):
 @app.post("/api/ask")
 async def ask(req: AskRequest = Body(...)):
     try:
+        api_key = get_gemini_api_key(req.user_id)
         # 🧠 Convert conversation history into readable text
         history_text = "\n".join(
             [f"{m['role'].capitalize()}: {m['content']}" for m in req.history[-5:]]
@@ -615,7 +668,7 @@ also provide stylish markdown to improve answer presentation.
         chat = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0.2,
-            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key=api_key,
         )
 
         answer = chat.invoke(prompt)
@@ -631,6 +684,7 @@ also provide stylish markdown to improve answer presentation.
 @app.post("/api/analyze_food")
 async def analyze_food(image_url: str = Query(...)):
     try:
+        api_key = get_gemini_api_key(user_id)
         if not image_url:
             raise HTTPException(status_code=400, detail="image_url is required")
 
@@ -658,7 +712,7 @@ async def analyze_food(image_url: str = Query(...)):
         )
 
         # ---- FIXED new Gemini API format ----
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        client = genai.Client(api_key=api_key)
 
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -706,12 +760,13 @@ async def delete_temp_image(public_id: str = Query(...)):
 @app.get("/api/todayFood/{user_id}")
 def get_today_food(user_id: str):
     try:
+        api_key = get_gemini_api_key(user_id)
         data = health_summary(user_id)
 
         chat = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0.6,
-            api_key=os.getenv("GEMINI_API_KEY")
+            api_key=api_key
         )
 
         prompt_template = f"""
@@ -780,6 +835,7 @@ JSON OUTPUT STRUCTURE:
 @app.get("/api/user/todayNutrition/{user_id}")
 async def get_today_nutrition(user_id: str):
     try:
+        api_key = get_gemini_api_key(user_id)
         # Get today's date range (00:00:00 → 23:59:59 in UTC)
         now = datetime.now(timezone.utc)
         start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
@@ -817,6 +873,7 @@ async def get_today_nutrition(user_id: str):
 @app.get("/api/user/macroHistory/{user_id}")
 def get_macro_history(user_id: str) -> Dict:
     try:
+        api_key = get_gemini_api_key(user_id)
         today = datetime.now().date()
         one_year_ago = today - timedelta(days=365)
         history_ref = db.collection("users").document(user_id).collection("meals")
@@ -1011,6 +1068,7 @@ def get_body_insights(user_id: str):
     """
 
     try:
+        api_key = get_gemini_api_key(user_id)
         # Fetch user stats from Firestore
         data = fetch_req_cal_firestore(user_id)  # Should return dict
 
@@ -1018,7 +1076,7 @@ def get_body_insights(user_id: str):
         chat = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0.4,
-            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key=api_key,
         )
 
         # AI prompt
@@ -1082,4 +1140,5 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
+
 
