@@ -70,7 +70,7 @@ except ValueError:
 db = firestore.client()
 Gemini_API = db.collections("users")
 # ---------- Helpers: timestamp parsing & safe sorting ----------
-_GEMINI_KEY_CACHE: Dict[str, Tuple[str, float]] = {}
+_GEMINI_KEY_CACHE: Dict[str, tuple[str, float]] = {}
 
 # Cache TTL in seconds (e.g. 3 hours)
 GEMINI_KEY_TTL = 3 * 60 * 60  # 3 hours
@@ -1140,5 +1140,6 @@ def get_body_insights(user_id: str):
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
+
 
 
