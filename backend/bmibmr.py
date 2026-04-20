@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from fastapi import HTTPException
 import firebase_admin
 from firebase_admin import credentials, firestore
-import google.generativeai as genai
 
 load_dotenv()
 
@@ -12,7 +11,6 @@ load_dotenv()
 try:
     firebase_admin.get_app()
 except ValueError:
-    # Use JSON string from environment variable
     firebase_json = os.getenv("FIREBASE_CREDENTIALS")
     if not firebase_json:
         raise ValueError("FIREBASE_CREDENTIALS not found in env")
@@ -20,29 +18,6 @@ except ValueError:
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-
-# ============= EMBEDDING MODEL (GOOGLE GENAI) =============
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-
-def embed_texts(texts):
-    """Embed multiple texts using Google's embedding model."""
-    result = genai.embed_content(
-        model="models/text-embedding-004",
-        content=texts,
-        task_type="retrieval_document"
-    )
-    return result['embedding'] if len(texts) == 1 else [e for e in result['embedding']]
-
-
-def embed_query(q):
-    """Embed a single query using Google's embedding model."""
-    result = genai.embed_content(
-        model="models/text-embedding-004",
-        content=q,
-        task_type="retrieval_query"
-    )
-    return result['embedding']
 
 
 # ============= FETCH FUNCTIONS =============
@@ -200,7 +175,7 @@ def flatten_dict(d, parent_key='', sep='_'):
     return out
 
 
-# ============= RAG QUERY (NO SKLEARN, NO NUMPY) =============
+# ============= CONTEXT QUERY (NO EMBEDDINGS) =============
 
 def ans_query_on_demand(user_id: str, query: str):
     user_doc = db.collection("users").document(user_id).get()
@@ -213,55 +188,35 @@ def ans_query_on_demand(user_id: str, query: str):
 
     # Add flattened user profile
     flat = flatten_dict(user_data)
-    profile_parts = [f"{k.replace('_',' ')}: {v}" for k, v in flat.items() if v]
+    profile_parts = [f"{k.replace('_', ' ')}: {v}" for k, v in flat.items() if v]
     if profile_parts:
         texts.append("User Profile → " + ", ".join(profile_parts))
 
-    # Add meals + history
+    # Add meals + history (limit to 20 each to avoid token overflow)
     for sub in ["history", "meals"]:
         try:
             docs = db.collection("users").document(user_id).collection(sub).stream()
+            count = 0
             for doc in docs:
+                if count >= 20:
+                    break
                 flat_doc = flatten_dict(doc.to_dict() or {})
-                parts = [f"{k.replace('_',' ')}: {v}" for k, v in flat_doc.items() if v]
+                parts = [f"{k.replace('_', ' ')}: {v}" for k, v in flat_doc.items() if v]
                 if parts:
                     texts.append(f"{sub.capitalize()} → " + ", ".join(parts))
+                    count += 1
         except:
             pass
 
     if not texts:
         return "No user data exists."
 
-    # ---- Get embeddings ----
-    # Embed each document separately to handle batch processing properly
-    doc_embeddings = []
-    for text in texts:
-        result = genai.embed_content(
-            model="models/text-embedding-004",
-            content=text,
-            task_type="retrieval_document"
-        )
-        doc_embeddings.append(result['embedding'])
-    
-    query_embedding = embed_query(query)
-
-    # ---- Compute cosine similarity manually ----
-    def cosine(a, b):
-        dot = sum(x*y for x, y in zip(a, b))
-        na = sum(x*x for x in a) ** 0.5
-        nb = sum(x*x for x in b) ** 0.5
-        return dot / (na * nb + 1e-10)
-
-    scored = [(cosine(e, query_embedding), i) for i, e in enumerate(doc_embeddings)]
-    scored.sort(reverse=True)
-
-    top_docs = [texts[i] for _, i in scored[:5]]
-
-    final_context = "\n".join(top_docs)
+    # Pass all context directly — Gemini 2.5 Flash handles large context well
+    context = "\n".join(texts)
 
     return (
-        f"Here is relevant user data:\n"
-        f"{final_context}\n\n"
+        f"Here is the user's data:\n"
+        f"{context}\n\n"
         f"Question: {query}\n"
         f"Answer concisely based only on the data above."
     )
