@@ -684,11 +684,9 @@ also provide stylish markdown to improve answer presentation.
 @app.post("/api/analyze_food")
 async def analyze_food(image_url: str = Query(...)):
     try:
-        api_key = get_gemini_api_key(user_id)
         if not image_url:
             raise HTTPException(status_code=400, detail="image_url is required")
 
-        # ---- Fetch image safely ----
         try:
             resp = requests.get(image_url, stream=True, timeout=10)
         except Exception as e:
@@ -697,7 +695,7 @@ async def analyze_food(image_url: str = Query(...)):
         if resp.status_code >= 400:
             raise HTTPException(status_code=400, detail=f"Image fetch failed: {resp.status_code}")
 
-        mime_type = resp.headers.get("Content-Type", "").lower()
+        mime_type = resp.headers.get("Content-Type", "").lower().split(";")[0].strip()
         if not mime_type.startswith("image/"):
             mime_type = "image/jpeg"
 
@@ -707,30 +705,41 @@ async def analyze_food(image_url: str = Query(...)):
 
         prompt = (
             "Analyze this food image and quantify macros. "
-            "Return strictly JSON: "
+            "Return strictly JSON with no markdown backticks: "
             '{"food_name":"...", "total_calories":..., "protein_g":..., "carbs_g":..., "fat_g":...}'
         )
 
-        # ---- FIXED new Gemini API format ----
-        client = genai.Client(api_key=api_key)
+        import base64
+        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
-                types.Part(text=prompt),
-                types.Part.from_bytes(mime_type=mime_type, data=img_bytes)
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt},
+                        {"inline_data": {"mime_type": mime_type, "data": img_b64}}
+                    ]
+                }
             ]
         )
 
-        text = response.text or response.candidates[0].content.parts[0].text
+        text = response.text.strip()
+        text = re.sub(r"```json\s*|\s*```", "", text).strip()
 
         return {"analysis": text}
 
     except HTTPException:
         raise
     except Exception as e:
-        print("analyze_food error:", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        err_str = str(e)
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            raise HTTPException(status_code=429, detail="Rate limit hit. Wait a moment and retry.")
+        print("analyze_food error:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=err_str)
 
 
 
