@@ -482,7 +482,7 @@ export default function Page() {
                                     <option value="light" className="bg-gray-900 text-gray-300">Light Exercise/walking or jogging only (1-2 times a week)</option>
                                     <option value="medium" className="bg-gray-900 text-gray-300">Medium Exercise (3-4 times a week)</option>
                                     <option value="regular" className="bg-gray-900 text-gray-300">Daily workout (5-6 times a week)</option>
-                                    <option value="student" className="bg-gray-900 text-gray-300">Student workout (Regular workouts. Pause during exams for around 1-2 months)</option>
+                                    {/* <option value="student" className="bg-gray-900 text-gray-300">Student workout (Regular workouts. Pause during exams for around 1-2 months)</option> */}
                                 </select>
                             </div>
                             <div>
