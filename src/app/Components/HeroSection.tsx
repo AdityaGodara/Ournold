@@ -134,7 +134,7 @@ export default function HeroSection() {
             text={user ? userData?.name || "Loading..." : "Ournold"}
             flex={true}
             width={true}
-            minFontSize={250}
+            minFontSize={150}
             weight={true}
             italic={true}
           />
