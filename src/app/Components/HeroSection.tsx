@@ -109,7 +109,7 @@ export default function HeroSection() {
   };
 
   return (
-    <div className="flex flex-col justify-around items-center w-full h-[90vh] px-4 sm:px-20 absolute z-1000">
+    <div className="flex flex-col justify-around items-center w-full min-h-[80vh] px-4 sm:px-10 py-8 gap-8">
       {user && (
         <button
           className={`text-red-500 border-2 py-2 px-5 border-red-500 rounded-xl cursor-pointer ${poiret.className} hover:text-stone-50 hover:bg-red-500 duration-[.5s]`}
@@ -125,12 +125,10 @@ export default function HeroSection() {
         exit="exit"
         whileInView="animate"
         viewport={{ once: false, amount: 0.25 }}
-        className={`head-text z-1000 w-full px-2 sm:px-10 py-10 font-bold ${poiret.className}`}
+        className="w-full px-2 sm:px-10 py-6"
       >
         <TextPressure
           text={user ? userData?.name || "Welcome" : "Ournold"}
-          fontFamily="Compressa VF"
-          fontUrl="https://res.cloudinary.com/dr6lvwubh/raw/upload/v1529908256/CompressaPRO-GX.woff2"
           textColor="#FFFFFF"
           flex
           width
