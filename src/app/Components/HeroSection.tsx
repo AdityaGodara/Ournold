@@ -125,7 +125,7 @@ export default function HeroSection() {
         exit="exit"
         whileInView="animate"
         viewport={{ once: false, amount: 0.25 }}
-        className="w-full px-2 sm:px-10 py-6"
+        className="w-full max-w-[72rem] mx-auto px-2 sm:px-10 py-6"
       >
         <TextPressure
           text={user ? userData?.name || "Welcome" : "Ournold"}
