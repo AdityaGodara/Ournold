@@ -5,9 +5,9 @@ from fastapi import HTTPException
 
 from app.auth import RateLimiter
 from app.llm import parse_json
-from app.routers.workout import compute_stats
 from app.services import metrics
 from app.services.parsing import parse_ts
+from app.services.workout_stats import compute_stats
 
 
 def test_bmi():

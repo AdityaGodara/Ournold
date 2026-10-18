@@ -4,6 +4,7 @@ import HeroSection from "./Components/HeroSection";
 import ScrollContext from "./Context/ScrollContext";
 import ClickSpark from "@/components/ClickSpark";
 import Particles from "@/components/Particles";
+import Footer from "@/components/Footer";
 
 export default function Home() {
 
@@ -30,6 +31,9 @@ export default function Home() {
             alphaParticles={false}
             disableRotation={false}
           />
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 z-[1000]">
+          <Footer />
         </div>
       </ScrollContext>
     </ClickSpark>

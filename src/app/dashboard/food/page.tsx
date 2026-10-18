@@ -5,13 +5,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Camera, ChevronDown, ChevronUp, Frown, Laugh, PlusCircle, RefreshCw, Smile, Sparkles, ThumbsDown } from "lucide-react";
 import { bounceIn } from "@/app/config/motion";
 import { useAuth } from "@/app/Context/AuthContext";
-import DailyMacro from "@/app/Components/DailyMacro";
 import DashboardShell from "@/components/DashboardShell";
 import { ErrorState, Skeleton } from "@/components/ui/Loader";
 import { userTimezone } from "@/lib/api";
 import { poiret } from "@/lib/fonts";
 import { useApi } from "@/lib/useApi";
 import MacroPie from "../Dash_Comp/MacroPie";
+import { FoodHabits, TodayRing, useFoodStats } from "./FoodInsights";
 import ProteinChart from "../Dash_Comp/ProteinChart";
 
 interface Meal {
@@ -207,6 +207,7 @@ function MealList() {
 }
 
 export default function FoodPage() {
+  const foodStats = useFoodStats();
   return (
     <DashboardShell active="food" chat="diet">
       <div className="flex flex-col items-center px-4 sm:px-6 md:px-8">
@@ -234,11 +235,14 @@ export default function FoodPage() {
           <div className="w-full lg:w-[70%]">
             <div className="flex flex-col xl:flex-row gap-5 justify-around">
               <div className="w-full xl:w-auto">
-                <DailyMacro />
+                <TodayRing state={foodStats} />
               </div>
               <div className="w-full xl:w-[50%] text-stone-50">
                 <MealPlan />
               </div>
+            </div>
+            <div className="mt-8">
+              <FoodHabits state={foodStats} />
             </div>
             <div className="flex flex-col md:flex-row gap-5 justify-between mt-10">
               <MacroPie />

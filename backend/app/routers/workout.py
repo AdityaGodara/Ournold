@@ -1,8 +1,7 @@
 """AI weekly workout plan, session logging and progress stats."""
 import logging
-from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, List, Literal, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ValidationError
@@ -12,6 +11,7 @@ from ..auth import ai_user, get_current_user
 from ..db import user_ref
 from ..services import metrics
 from ..services import profile as profile_svc
+from ..services.workout_stats import compute_stats
 
 log = logging.getLogger("ournold.workout")
 router = APIRouter(prefix="/api/workout", tags=["workout"])
@@ -183,60 +183,10 @@ def delete_session(session_id: str, uid: str = Depends(get_current_user)):
 
 
 # ------------------------------------------------------------- stats
-def compute_stats(sessions: List[dict], today: date) -> dict:
-    """Pure function (unit tested): streak, last-7-day strip, weekly series and per-exercise bests."""
-    days = {s["local_date"] for s in sessions if s.get("local_date")}
-
-    # streak counts back from today, or from yesterday if today has no session yet
-    cursor = today if today.isoformat() in days else today - timedelta(days=1)
-    streak = 0
-    while cursor.isoformat() in days:
-        streak += 1
-        cursor -= timedelta(days=1)
-
-    strip = [
-        {"date": (today - timedelta(days=i)).isoformat(), "done": (today - timedelta(days=i)).isoformat() in days}
-        for i in range(6, -1, -1)
-    ]
-
-    monday = today - timedelta(days=today.weekday())
-    weeks: Dict[str, dict] = {}
-    for i in range(7, -1, -1):
-        w = (monday - timedelta(weeks=i)).isoformat()
-        weeks[w] = {"week": w, "sessions": 0, "volume": 0.0, "reps": 0}
-    for s in sessions:
-        try:
-            d = date.fromisoformat(s["local_date"])
-        except (KeyError, ValueError):
-            continue
-        key = (d - timedelta(days=d.weekday())).isoformat()
-        if key in weeks:
-            weeks[key]["sessions"] += 1
-            weeks[key]["volume"] += float(s.get("volume") or 0)
-            weeks[key]["reps"] += int(s.get("total_reps") or 0)
-
-    best: Dict[str, dict] = defaultdict(lambda: {"max_weight": 0.0, "max_reps": 0})
-    for s in sessions:
-        for ex in s.get("exercises", []):
-            for st in ex.get("sets", []):
-                if not st.get("done", True):
-                    continue
-                b = best[ex["name"]]
-                b["max_weight"] = max(b["max_weight"], float(st.get("weight") or 0))
-                b["max_reps"] = max(b["max_reps"], int(st.get("reps") or 0))
-
-    return {
-        "streak": streak,
-        "today_done": today.isoformat() in days,
-        "total_sessions": len(sessions),
-        "strip": strip,
-        "weekly": list(weeks.values()),
-        "best": [{"name": k, **v} for k, v in sorted(best.items())][:30],
-    }
-
-
 @router.get("/stats")
 def stats(today: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"), uid: str = Depends(get_current_user)):
     t = date.fromisoformat(today)
-    since = (t - timedelta(days=100)).isoformat()
-    return compute_stats(_sessions(uid, since_date=since), t)
+    plan = _plan_ref(uid).get()
+    target = int((plan.to_dict() or {}).get("params", {}).get("days_per_week", 3)) if plan.exists else 3
+    since = (t - timedelta(days=180)).isoformat()
+    return compute_stats(_sessions(uid, since_date=since), t, target)

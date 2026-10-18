@@ -21,11 +21,25 @@ export interface PlanDoc {
 
 export interface Stats {
   streak: number;
+  best_streak: number;
   today_done: boolean;
   total_sessions: number;
   strip: { date: string; done: boolean }[];
-  weekly: { week: string; sessions: number; volume: number; reps: number }[];
+  weekly: { week: string; sessions: number; volume: number; reps: number; minutes: number; calories: number }[];
+  target_per_week: number;
+  sessions_this_week: number;
+  sessions_last_week: number;
+  active_minutes_week: number;
+  calories_week: number;
+  volume_change_pct: number | null;
+  consistent_weeks: number;
   best: { name: string; max_weight: number; max_reps: number }[];
+  prs: { exercise: string; date: string; weight: number; reps: number; kind: "weight" | "reps" }[];
+  prs_this_week: number;
+  e1rm: { name: string; points: { date: string; e1rm: number }[] }[];
+  balance: { group: string; sets: number }[];
+  neglected: string | null;
+  recovery: { days_since: number | null; message: string };
 }
 
 export interface SessionDoc {

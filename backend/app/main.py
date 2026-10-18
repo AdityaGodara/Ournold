@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
-from .routers import chat, food, profile, workout
+from .routers import chat, food, profile, stats, workout
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("ournold")
@@ -21,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (profile.router, food.router, workout.router, chat.router):
+for r in (profile.router, food.router, workout.router, chat.router, stats.router):
     app.include_router(r)
 
 
