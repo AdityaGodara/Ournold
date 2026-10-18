@@ -134,8 +134,8 @@ export default function HeroSection() {
           width
           weight
           italic
-          idle="wave"
-          clickRipple
+          idle="none"
+          clickRipple={false}
           minFontSize={36}
         />
       </motion.div>
