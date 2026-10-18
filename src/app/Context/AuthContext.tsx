@@ -3,6 +3,8 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, DocumentReference, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/app/firebase/config";
+import { BACKEND_URL } from "@/lib/api";
+import { clearApiCache } from "@/lib/apiCache";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface AuthContextType {
@@ -32,9 +34,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [profileReady, setProfileReady] = useState(false);
   const [profileMissing, setProfileMissing] = useState(false);
 
+  // Wake the (free-tier) backend while the user is still on the landing/login screen.
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/health`, { cache: "no-store" }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     return onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
+      if (!firebaseUser) clearApiCache(); // never leave one account's data behind for the next
       setAuthReady(true);
       if (!firebaseUser) {
         setUserData(null);

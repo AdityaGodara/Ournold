@@ -42,6 +42,17 @@ flowchart LR
 - **Data**: Firestore. `users/{uid}` (profile + `currentData`), `history`, `meals` are written by the client under
   security rules. `private/secrets`, `cache`, `chats`, `workouts`, `workoutPlans` are server-only.
 
+## Caching (all free-tier)
+
+- **Instant reloads:** API reads use stale-while-revalidate (`src/lib/apiCache.ts`, `useApi`). Cached data renders
+  immediately from memory / `localStorage`, then refreshes in the background, and a component re-renders only if its
+  data actually changed. Any write (new meal, workout, profile edit) marks the cache stale so screens refresh.
+- **Per-user and private:** entries are keyed by user id and wiped on sign-out.
+- **Firestore offline cache:** the profile and other reads are served from IndexedDB, shared across tabs.
+- **HTTP ETags:** the API answers `304 Not Modified` (no body) when nothing changed.
+- **Cold-start warm-up:** the app pings `/health` on load so a sleeping free Render instance wakes while you sign in.
+- AI results (meal plan, insights, ratings) are additionally cached per user in Firestore by the backend.
+
 ## Tech stack
 
 Next.js · React · TypeScript · Tailwind CSS · Framer Motion · Nivo · TensorFlow.js (MoveNet) ·

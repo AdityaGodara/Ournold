@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
+from .http_cache import ETagMiddleware
 from .routers import chat, food, profile, stats, workout
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -13,6 +14,8 @@ log = logging.getLogger("ournold")
 
 app = FastAPI(title="Ournold API", version="2.0.0")
 
+# added first = inner, so CORS headers are applied to 304 responses too
+app.add_middleware(ETagMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,

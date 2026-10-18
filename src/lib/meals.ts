@@ -1,5 +1,6 @@
 import { addDoc, collection } from "firebase/firestore";
 import { db } from "@/app/firebase/config";
+import { invalidateAll } from "@/lib/apiCache";
 
 export interface MealInput {
   name: string;
@@ -32,7 +33,7 @@ export async function saveMeal(uid: string, meal: MealInput) {
   if (!name) throw new Error("Give the meal a name.");
   const at = meal.at ?? new Date();
   if (at.getTime() > Date.now() + 5 * 60_000) throw new Error("A meal can't be in the future.");
-  return addDoc(collection(db, "users", uid, "meals"), {
+  const ref = await addDoc(collection(db, "users", uid, "meals"), {
     meal_name: name.slice(0, 120),
     cals: clampNum(meal.calories, 10000),
     protein: clampNum(meal.protein, 1000),
@@ -41,4 +42,6 @@ export async function saveMeal(uid: string, meal: MealInput) {
     meal_time: mealTimeFor(at),
     timestamp: at.toISOString(),
   });
+  invalidateAll(); // stats / meal lists must reflect the new meal
+  return ref;
 }

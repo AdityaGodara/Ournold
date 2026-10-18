@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import { auth } from "@/app/firebase/config";
+import { invalidateAll } from "@/lib/apiCache";
 
 export const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -24,6 +25,12 @@ api.interceptors.request.use(async (config) => {
     config.headers.Authorization = `Bearer ${await user.getIdToken()}`;
   }
   return config;
+});
+
+// Any successful write makes cached reads stale, so screens refresh with the new numbers.
+api.interceptors.response.use((res) => {
+  if ((res.config.method ?? "get").toLowerCase() !== "get") invalidateAll();
+  return res;
 });
 
 function classify(status: number, detail: string): ApiError {

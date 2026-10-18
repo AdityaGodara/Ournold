@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/app/Context/AuthContext";
 import { db } from "@/app/firebase/config";
 import { api, toApiError } from "@/lib/api";
+import { invalidateAll } from "@/lib/apiCache";
 import { poiret } from "@/lib/fonts";
 import { ageFromDob, bmi, bmr, maintenanceCalories } from "@/lib/metrics";
 import { ACTIVITY_LEVELS, BODY_TYPES, GOALS, current, normalizeGoal } from "@/lib/profile";
@@ -110,6 +111,7 @@ export default function Page() {
         timestamp: now,
       });
       await batch.commit();
+      invalidateAll(); // targets, trends and AI notes depend on the profile
 
       if (form.api_key) {
         try {
