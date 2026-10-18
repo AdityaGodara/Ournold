@@ -119,23 +119,28 @@ export default function HeroSection() {
         </button>
       )}
 
-      <motion.h1
+      <motion.div
         variants={slideAnimation("left")}
         initial="initial"
         exit="exit"
         whileInView="animate"
         viewport={{ once: false, amount: 0.25 }}
-        className={`head-text z-1000 px-4 sm:px-20 py-10 font-bold ${poiret.className}`}
+        className={`head-text z-1000 w-full px-2 sm:px-10 py-10 font-bold ${poiret.className}`}
       >
         <TextPressure
           text={user ? userData?.name || "Welcome" : "Ournold"}
-          flex={true}
-          width={true}
-          minFontSize={150}
-          weight={true}
-          italic={true}
+          fontFamily="Compressa VF"
+          fontUrl="https://res.cloudinary.com/dr6lvwubh/raw/upload/v1529908256/CompressaPRO-GX.woff2"
+          textColor="#FFFFFF"
+          flex
+          width
+          weight
+          italic
+          idle="wave"
+          clickRipple
+          minFontSize={36}
         />
-      </motion.h1>
+      </motion.div>
 
       <motion.ul
         variants={slideAnimation("right")}

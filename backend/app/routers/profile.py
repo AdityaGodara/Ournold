@@ -11,7 +11,7 @@ from .. import llm
 from ..auth import ai_user, get_current_user
 from ..config import settings
 from ..db import user_ref
-from ..services import cache
+from ..services import cache, insights
 from ..services import profile as profile_svc
 from ..services.parsing import parse_ts
 
@@ -102,20 +102,13 @@ Goal: {p['goal']}, BMR: {p['bmr']}, height: {p['height']} cm, weight: {p['weight
 
 
 @router.get("/me/reqCal")
-def required_calories(refresh: bool = False, uid: str = Depends(ai_user)):
+def required_calories(uid: str = Depends(get_current_user)):
+    """Deterministic (no AI call): maintenance +/- a goal adjustment, never below a safe floor."""
     p = profile_svc.get_profile(uid)
-
-    def compute():
-        data = llm.invoke_json(
-            uid,
-            f"""You are a fitness expert. Return ONLY JSON {{"req_intake": <number kcal/day>, "percent_chg": <signed number vs maintenance>}}.
-Goal: {p['goal']}, maintenance calories: {p['mCal']}, height: {p['height']} cm, weight: {p['weight']} kg,
-gender: {p['gender']}, age: {p['age']}, exercise intensity: {p['exercise_intensity']}.""",
-            temperature=0.3,
-        )
-        return {"req_intake": data.get("req_intake"), "percent_chg": data.get("percent_chg")}
-
-    return cache.cached(uid, "reqCal", _profile_version(p, "weight", "height", "goal", "mCal"), compute, refresh)
+    target = insights.calorie_target(p)
+    maint = p.get("mCal")
+    pct = round((target - maint) / maint * 100, 2) if target and maint else None
+    return {"req_intake": target, "percent_chg": pct}
 
 
 @router.get("/me/bodyInsights")

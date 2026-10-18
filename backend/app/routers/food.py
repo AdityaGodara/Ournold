@@ -17,7 +17,8 @@ from ..config import settings
 from ..db import user_ref
 from ..services import cache
 from ..services import profile as profile_svc
-from ..services.parsing import day_range_utc, iso_floor, parse_ts
+from ..services.meals import meals_since
+from ..services.parsing import day_range_utc, parse_ts
 
 log = logging.getLogger("ournold.food")
 router = APIRouter(prefix="/api", tags=["food"])
@@ -25,14 +26,7 @@ router = APIRouter(prefix="/api", tags=["food"])
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
-def _meals_since(uid: str, since: datetime, limit: int = 2000):
-    """Bounded, indexed range query on the ISO-string `timestamp` field."""
-    q = user_ref(uid).collection("meals").where("timestamp", ">=", iso_floor(since)).limit(limit)
-    for doc in q.stream():
-        e = doc.to_dict() or {}
-        dt = parse_ts(e.get("timestamp"))
-        if dt:
-            yield doc.id, e, dt
+_meals_since = meals_since
 
 
 def _f(v) -> float:

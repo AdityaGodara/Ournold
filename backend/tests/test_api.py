@@ -15,6 +15,9 @@ PROTECTED = [
     ("post", "/api/workout/plan"),
     ("get", "/api/workout/stats?today=2025-01-01"),
     ("get", "/api/chats"),
+    ("get", "/api/me/stats/dashboard"),
+    ("get", "/api/me/stats/food"),
+    ("get", "/api/me/reqCal"),
     ("post", "/api/chat/stream"),
     ("put", "/api/me/gemini-key"),
 ]

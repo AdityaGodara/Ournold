@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ClickSpark from "@/components/ClickSpark";
 import DashboardNav, { NavKey } from "@/components/DashboardNav";
-import Loader from "@/components/ui/Loader";
+import Footer from "@/components/Footer";
+import PageSkeleton from "@/components/ui/Skeletons";
 import ChatBox from "@/components/chat/ChatBox";
 import { useAuth } from "@/app/Context/AuthContext";
 import { useApi } from "@/lib/useApi";
@@ -27,11 +28,11 @@ export default function DashboardShell({ active, chat, children }: Props) {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
 
-  if (loading || !user) return <Loader />;
+  if (loading || !user) return <PageSkeleton variant={active === "food" ? "food" : active === "workout" ? "workout" : "dashboard"} />;
 
   return (
     <ClickSpark sparkColor="#fff" sparkSize={10} sparkRadius={15} sparkCount={8} duration={400}>
-      <div className="min-h-screen relative pb-24">
+      <div className="min-h-screen relative pb-12">
         <DashboardNav active={active} />
         {profileMissing && (
           <p className="text-center text-orange-300 px-4 mb-4" role="alert">
@@ -49,6 +50,7 @@ export default function DashboardShell({ active, chat, children }: Props) {
         )}
         {children}
       </div>
+      <Footer />
       {chat && <ChatBox convo={chat} />}
     </ClickSpark>
   );
