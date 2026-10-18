@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .. import llm
 from ..auth import ai_user, get_current_user
-from ..db import user_ref
+from ..db import get_db, user_ref
 from ..services.context import system_prompt
 
 log = logging.getLogger("ournold.chat")
@@ -164,14 +164,14 @@ def rename_chat(chat_id: str, body: RenameBody, uid: str = Depends(get_current_u
 @router.delete("/chats/{chat_id}")
 def delete_chat(chat_id: str, uid: str = Depends(get_current_user)):
     ref = _chats(uid).document(chat_id)
-    batch = ref.collection("messages")._client.batch()
+    batch = get_db().batch()
     n = 0
     for d in ref.collection("messages").stream():
         batch.delete(d.reference)
         n += 1
         if n % 400 == 0:
             batch.commit()
-            batch = ref.collection("messages")._client.batch()
+            batch = get_db().batch()
     batch.delete(ref)
     batch.commit()
     return {"deleted": True}

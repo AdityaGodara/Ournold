@@ -1,40 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
-import './loading.css';
+import Loader from "@/components/ui/Loader";
+import "./loading.css";
 
+/** Shows the honeycomb loader for the first paint only, then hands over to each page's own loading states. */
 export default function LoadingWrapper({ children }: { children: React.ReactNode }) {
-  const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Simulate loading until hydration + assets ready + 5 second delay
-    const handleLoad = () => {
-      setLoading(false);
-    };
-
-    if (document.readyState === "complete") {
-      handleLoad();
-    } else {
-      window.addEventListener("load", handleLoad);
-    }
-
-    return () => window.removeEventListener("load", handleLoad);
+    const id = requestAnimationFrame(() => setReady(true));
+    return () => cancelAnimationFrame(id);
   }, []);
 
-  if (loading) {
-    return (
-      <div className="w-full h-screen flex justify-center items-center bg-black">
-        <div className="honeycomb">
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-        </div>
-      </div>
-    );
-  }
-
-  return children;
+  return ready ? <>{children}</> : <Loader />;
 }

@@ -1,265 +1,210 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import { ChevronLeft } from "lucide-react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Poiret_One } from "next/font/google";
-import { useAuth } from "../Context/AuthContext";
+import { collection, deleteField, doc, writeBatch } from "firebase/firestore";
+import ClickSpark from "@/components/ClickSpark";
+import BackButton from "@/components/BackButton";
+import GeminiKeyField from "@/components/auth/GeminiKeyField";
+import Loader from "@/components/ui/Loader";
+import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/app/Context/AuthContext";
 import { db } from "@/app/firebase/config";
-import { doc, updateDoc, collection, addDoc, Timestamp } from "firebase/firestore";
+import { api, toApiError } from "@/lib/api";
+import { poiret } from "@/lib/fonts";
+import { ageFromDob, bmi, bmr, maintenanceCalories } from "@/lib/metrics";
+import { ACTIVITY_LEVELS, BODY_TYPES, GOALS, current, normalizeGoal } from "@/lib/profile";
+import { useApi } from "@/lib/useApi";
 
-// 🔥 Your MetricCalc functions
-import { bmi, bmr, maintenanceCalories } from "@/app/Utils/MetricCalc";
-
-const fontPoiretOne = Poiret_One({
-    subsets: ["latin"],
-    weight: ["400"]
-});
+const input = "w-full border border-stone-500 focus:border-stone-50 rounded-md px-3 py-2 bg-transparent outline-none transition";
+const opt = "bg-black";
 
 export default function Page() {
-    const router = useRouter();
-    const { user, userData, loading } = useAuth();
+  const router = useRouter();
+  const toast = useToast();
+  const { user, userData, loading } = useAuth();
+  const keyStatus = useApi<{ configured: boolean }>(user ? "/api/me/gemini-key/status" : null);
 
-    const [form, setForm] = useState({
-        name: "",
-        diet: "",
-        weight: 0,
-        height: 0,
-        goal: "",
-        explain_goal: "",
-        budget: "",
-        body_type: "",
-        exercise_intensity: "",
-        api_key: ""
+  const [form, setForm] = useState({
+    name: "", diet: "", weight: "", height: "", goal: "", explain_goal: "", any_complication: "",
+    budget: "", body_type: "", exercise_intensity: "", gender: "", api_key: "",
+  });
+  const [ready, setReady] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [loading, user, router]);
+
+  // populate once when the profile first arrives (not on every live update, which would clobber typing)
+  useEffect(() => {
+    if (!userData || ready) return;
+    const c = current(userData);
+    setForm({
+      name: userData.name ?? "",
+      diet: userData.diet ?? "",
+      weight: String(c.weight ?? ""),
+      height: String(c.height ?? ""),
+      goal: normalizeGoal(c.goal),
+      explain_goal: c.explain_goal ?? "",
+      any_complication: c.any_complication ?? "",
+      budget: String(c.budget ?? ""),
+      body_type: c.body_type ?? "",
+      exercise_intensity: c.exercise_intensity ?? "",
+      gender: userData.gender ?? "male",
+      api_key: "",
     });
+    setReady(true);
+  }, [userData, ready]);
 
-    const calculateAge = (dobString: any) => {
-        if (!dobString) return 0;
-        const dob = new Date(dobString);
-        const diff = Date.now() - dob.getTime();
-        return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
-    };
+  if (loading || !user || !ready) return <Loader />;
 
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
 
-    useEffect(() => {
-        if (userData?.currentData) {
-            setForm({
-                name: userData.name ?? "",
-                diet: userData.diet ?? "",
-                weight: Number(userData.currentData.weight ?? 0),
-                height: Number(userData.currentData.height ?? 0),
-                goal: userData.currentData.goal ?? "",
-                explain_goal: userData.currentData.explain_goal ?? "",
-                budget: userData.currentData.budget ?? "",
-                body_type: userData.currentData.body_type ?? "",
-                exercise_intensity: userData.currentData.exercise_intensity ?? "",
-                api_key: userData.gemini_api ?? ""
-            });
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const weight = parseFloat(form.weight);
+    const height = parseFloat(form.height);
+    if (!(weight >= 20 && weight <= 300)) return toast("Weight must be between 20-300 kg.", "error");
+    if (!(height >= 50 && height <= 250)) return toast("Height must be between 50-250 cm.", "error");
+    if (form.name.trim().length < 2) return toast("Please enter your name.", "error");
+    if (!form.goal) return toast("Please choose a goal.", "error");
+
+    setSaving(true);
+    try {
+      const age = ageFromDob(userData.dob);
+      const bmiValue = bmi(weight, height);
+      const bmrValue = age ? bmr(weight, height, age, form.gender) : null;
+      const now = new Date().toISOString();
+      const maintenance = maintenanceCalories(bmrValue, form.exercise_intensity);
+
+      const batch = writeBatch(db);
+      batch.update(doc(db, "users", user.uid), {
+        name: form.name.trim(),
+        diet: form.diet.trim(),
+        age: age ?? deleteField(),
+        updatedAt: now,
+        "currentData.weight": weight,
+        "currentData.height": height,
+        "currentData.goal": form.goal,
+        "currentData.explain_goal": form.explain_goal.trim(),
+        "currentData.any_complication": form.any_complication.trim(),
+        "currentData.budget": parseFloat(form.budget) || 0,
+        "currentData.body_type": form.body_type,
+        "currentData.exercise_intensity": form.exercise_intensity,
+        "currentData.bmi": bmiValue,
+        "currentData.bmr": bmrValue,
+        "currentData.maintenanceCalories": maintenance,
+        "currentData.updatedAt": now,
+        // legacy fields: req_cal_intake used to be overwritten with the money budget, ideal_bmi was hardcoded
+        "currentData.req_cal_intake": deleteField(),
+        "currentData.ideal_bmi": deleteField(),
+        "currentData.ideal_bmr": deleteField(),
+      });
+      batch.set(doc(collection(db, "users", user.uid, "history")), {
+        weight,
+        height,
+        bmi: bmiValue,
+        bmr: bmrValue,
+        goal: form.goal,
+        timestamp: now,
+      });
+      await batch.commit();
+
+      if (form.api_key) {
+        try {
+          await api.put("/api/me/gemini-key", { key: form.api_key });
+        } catch (err) {
+          toast(`Profile saved, but the key wasn't updated: ${toApiError(err).message}`, "error");
+          setSaving(false);
+          return;
         }
-    }, [userData]);
-
-    useEffect(() => {
-        if (!loading && !user) {
-            router.replace("/login");
-        }
-    }, [loading, user, router]);
-
-    if (loading || !user || !userData) {
-        return <div className="text-white p-10">Loading...</div>;
+      }
+      toast("Profile updated", "success");
+      router.back();
+    } catch (err) {
+      console.error(err);
+      toast("Couldn't save your profile. Please try again.", "error");
+      setSaving(false);
     }
+  };
 
-    const handleChange = (e: any) => {
-        setForm({ ...form, [e.target.name]: e.target.value });
-    };
+  const label = "text-lg";
 
-    const handleUpdate = async (e: any) => {
-        e.preventDefault();
-        const uid = user.uid;
+  return (
+    <ClickSpark>
+      <BackButton />
+      <main className={`w-full min-h-screen flex justify-center items-start py-20 px-3 text-stone-50 ${poiret.className}`}>
+        <div className="w-full max-w-xl mx-auto p-6 sm:p-10 border border-stone-700 rounded-2xl backdrop-blur-sm bg-black/40">
+          <h1 className="text-4xl text-center mb-8">Update Profile</h1>
 
-        // 🔥 Recalculate metrics using your MetricCalc utils
-        const newBMI = Number(bmi(form.weight, form.height).toFixed(2));
-        const age = calculateAge(userData.dob);   // <-- calculate from stored DOB
-        const newBMR = Number(bmr(form.weight, form.height, age).toFixed(2));
+          <form onSubmit={handleUpdate} className="flex flex-col gap-5">
+            <label className={label} htmlFor="name">Full Name</label>
+            <input id="name" className={input} value={form.name} onChange={set("name")} maxLength={80} />
 
-        const newMaintenance = Number(
-            maintenanceCalories(newBMR, form.exercise_intensity).toFixed(2)
-        );
+            <label className={label} htmlFor="diet">Diet Preference</label>
+            <input id="diet" className={input} value={form.diet} onChange={set("diet")} maxLength={80} placeholder="E.g., veg, non-veg, veg + eggs, vegan..." />
 
-        const ideal_bmi = 24.9;
-        const req_cal_intake = form.budget;
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <label className={label} htmlFor="weight">Weight (kg)</label>
+                <input id="weight" type="number" inputMode="decimal" step="0.1" min={20} max={300} className={input} value={form.weight} onChange={set("weight")} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={label} htmlFor="height">Height (cm)</label>
+                <input id="height" type="number" inputMode="decimal" min={50} max={250} className={input} value={form.height} onChange={set("height")} />
+              </div>
+            </div>
 
-        const updated = {
-            name: form.name,
-            diet: form.diet,
-            height: form.height,
-            updatedAt: new Date().toISOString(),
-            gemini_api: form.api_key,
+            <label className={label} htmlFor="goal">Fitness Goal</label>
+            <select id="goal" className={input} value={form.goal} onChange={set("goal")}>
+              <option className={opt} value="" disabled>Select goal</option>
+              {GOALS.map((o) => (
+                <option key={o.value} className={opt} value={o.value}>{o.label}</option>
+              ))}
+            </select>
 
-            currentData: {
-                weight: form.weight,
-                height: form.height,
-                goal: form.goal,
-                explain_goal: form.explain_goal,
-                budget: form.budget,
-                body_type: form.body_type,
-                exercise_intensity: form.exercise_intensity,
+            <label className={label} htmlFor="explain_goal">Explain Your Goal</label>
+            <textarea id="explain_goal" rows={5} maxLength={500} className={`${input} resize-none`} value={form.explain_goal} onChange={set("explain_goal")} />
 
-                bmi: newBMI,
-                bmr: newBMR,
-                ideal_bmi,
-                maintenanceCalories: newMaintenance,
-                req_cal_intake,
-                updatedAt: Timestamp.now()
-            }
-        };
+            <label className={label} htmlFor="complications">Allergies, injuries or complications</label>
+            <textarea id="complications" rows={3} maxLength={500} className={`${input} resize-none`} value={form.any_complication} onChange={set("any_complication")} />
 
-        await updateDoc(doc(db, "users", uid), updated);
+            <label className={label} htmlFor="budget">Monthly Fitness Budget (INR)</label>
+            <input id="budget" type="number" inputMode="numeric" min={0} className={input} value={form.budget} onChange={set("budget")} />
 
-        await addDoc(collection(db, "users", uid, "history"), {
-            ...updated.currentData,
-            timestamp: new Date().toISOString()
-        });
+            <label className={label} htmlFor="body_type">Body Type</label>
+            <select id="body_type" className={input} value={form.body_type} onChange={set("body_type")}>
+              <option className={opt} value="">Select</option>
+              {BODY_TYPES.map((o) => (
+                <option key={o.value} className={opt} value={o.value}>{o.label.split(" – ")[0]}</option>
+              ))}
+            </select>
 
-        alert("Profile updated successfully!");
-        router.back();
-    };
+            <label className={label} htmlFor="exercise">Exercise Frequency</label>
+            <select id="exercise" className={input} value={form.exercise_intensity} onChange={set("exercise_intensity")}>
+              <option className={opt} value="">Select</option>
+              {ACTIVITY_LEVELS.map((o) => (
+                <option key={o.value} className={opt} value={o.value}>{o.label}</option>
+              ))}
+            </select>
 
-    return (
-        <div className={`w-full min-h-screen flex justify-center items-start py-20 text-stone-50 ${fontPoiretOne.className}`}>
-
-
-            {/* Back Button */}
-            <ChevronLeft
-                size={32}
-                color="#ffffff"
-                className="absolute top-10 left-10 cursor-pointer hover:scale-125 transition"
-                onClick={() => router.back()}
+            <GeminiKeyField
+              value={form.api_key}
+              onChange={(v) => setForm((f) => ({ ...f, api_key: v }))}
+              configured={keyStatus.data?.configured}
             />
 
-            <div className="w-[90%] max-w-xl mx-auto p-10 border border-stone-700 rounded-2xl backdrop-blur-sm bg-black/40">
-
-                <h1 className="text-4xl text-center mb-8">Update Profile</h1>
-
-                <form onSubmit={handleUpdate} className="flex flex-col gap-6">
-
-                    {/* Name */}
-                    <label className="text-lg">Full Name</label>
-                    <input
-                        type="text"
-                        name="name"
-                        value={form.name}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    />
-
-                    {/* Diet */}
-                    <label className="text-lg">Diet Preference</label>
-                    <input
-                        type="text"
-                        name="diet"
-                        value={form.diet}
-                        onChange={handleChange}
-                        placeholder="E.g., veg, non-veg, veg + eggs, vegan..."
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    />
-
-                    {/* Weight */}
-                    <label className="text-lg">Weight (kg)</label>
-                    <input
-                        type="number"
-                        name="weight"
-                        value={form.weight}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    />
-
-                    {/* Height */}
-                    <label className="text-lg">Height (cm)</label>
-                    <input
-                        type="number"
-                        name="height"
-                        value={form.height}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    />
-
-                    {/* Goal */}
-                    <label className="text-lg">Fitness Goal</label>
-                    <input
-                        type="text"
-                        name="goal"
-                        value={form.goal}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    />
-
-                    {/* Explain Goal */}
-                    <label className="text-lg">Explain Your Goal</label>
-                    <textarea
-                        name="explain_goal"
-                        value={form.explain_goal}
-                        onChange={handleChange}
-                        cols={40}
-                        rows={8}
-                        className="border border-stone-500 rounded-md p-3 bg-transparent outline-none resize-none"
-                    />
-
-                    {/* Budget */}
-                    <label className="text-lg">Daily Calorie Budget</label>
-                    <input
-                        type="number"
-                        name="budget"
-                        value={form.budget}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    />
-
-                    {/* Body Type */}
-                    <label className="text-lg">Body Type</label>
-                    <select
-                        name="body_type"
-                        value={form.body_type}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    >
-                        <option className="bg-black" value="">Select</option>
-                        <option className="bg-black" value="ectomorph">Ectomorph</option>
-                        <option className="bg-black" value="mesomorph">Mesomorph</option>
-                        <option className="bg-black" value="endomorph">Endomorph</option>
-                    </select>
-
-                    {/* Exercise Intensity */}
-                    <label className="text-lg">Exercise Frequency</label>
-                    <select
-                        name="exercise_intensity"
-                        value={form.exercise_intensity}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    >
-                        <option className="bg-black" value="">Select</option>
-                        <option className="bg-black" value="no">No Exercise</option>
-                        <option className="bg-black" value="light">Light</option>
-                        <option className="bg-black" value="medium">Medium</option>
-                        <option className="bg-black" value="regular">Regular</option>
-                        <option className="bg-black" value="student">Student / Athlete</option>
-                    </select>
-                    
-                    <label className="text-lg">API Key</label>
-                    <input
-                        type="password"
-                        name="api_key"
-                        value={form.api_key}
-                        onChange={handleChange}
-                        className="border border-stone-500 rounded-md px-3 py-2 bg-transparent outline-none"
-                    />
-                    <button
-                        type="submit"
-                        className="mt-5 py-3 bg-white/20 hover:bg-white/30 transition rounded-xl text-xl"
-                    >
-                        Save Changes
-                    </button>
-                </form>
-
-            </div>
+            <button
+              type="submit"
+              disabled={saving}
+              className="mt-3 py-3 bg-white/20 hover:bg-white/30 disabled:opacity-60 transition rounded-xl text-xl"
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          </form>
         </div>
-    );
+      </main>
+    </ClickSpark>
+  );
 }

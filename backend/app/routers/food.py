@@ -7,6 +7,7 @@ from typing import Dict, Optional
 
 import requests
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
@@ -233,7 +234,9 @@ async def analyze_food(file: UploadFile = File(...), uid: str = Depends(ai_user)
         ]
     )
     try:
-        resp = llm.get_llm(uid, 0.2).invoke([msg])
+        # the SDK call is blocking: keep it off the event loop
+        model = await run_in_threadpool(llm.get_llm, uid, 0.2)
+        resp = await run_in_threadpool(model.invoke, [msg])
         result = llm.parse_json(llm.text_of(resp.content))
     except HTTPException:
         raise

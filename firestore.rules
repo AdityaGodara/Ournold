@@ -1,0 +1,55 @@
+rules_version = '2';
+
+// Ournold security rules.
+// - Users can only touch their own data.
+// - Everything the backend owns (private/secrets, cache, chats, workouts, workoutPlans) is invisible to clients:
+//   it is read and written by the FastAPI server through the Admin SDK, which bypasses these rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    function isNum(v) {
+      return v is number;
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      // The Gemini key is never written from the browser (the server stores it encrypted).
+      allow create: if isOwner(uid) && !('gemini_api' in request.resource.data);
+      allow update: if isOwner(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['gemini_api']);
+      allow delete: if false;
+
+      match /history/{id} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && isNum(request.resource.data.weight)
+          && isNum(request.resource.data.height)
+          && request.resource.data.timestamp is string;
+        allow update, delete: if false;
+      }
+
+      match /meals/{id} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.meal_name is string
+          && request.resource.data.meal_name.size() > 0
+          && request.resource.data.meal_name.size() <= 120
+          && isNum(request.resource.data.cals) && request.resource.data.cals >= 0 && request.resource.data.cals <= 10000
+          && isNum(request.resource.data.protein) && request.resource.data.protein >= 0
+          && isNum(request.resource.data.carbs) && request.resource.data.carbs >= 0
+          && isNum(request.resource.data.fat) && request.resource.data.fat >= 0
+          && request.resource.data.timestamp is string;
+        allow delete: if isOwner(uid);
+        allow update: if false;
+      }
+
+      // private/*, cache/*, chats/*, workouts/*, workoutPlans/*: no client access (default deny)
+    }
+  }
+}

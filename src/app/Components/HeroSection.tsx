@@ -1,246 +1,165 @@
 "use client";
-import { AnimatePresence, motion } from "framer-motion";
-import React, { useState } from "react";
-import { slideAnimation } from "../config/motion";
-import { Poiret_One } from "next/font/google";
-import { LogIn, Send, Dumbbell, ChartLine, Pencil } from "lucide-react";
-import TextPressure from "@/components/TextPressure";
+import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { ChartLine, Dumbbell, LogIn, Pencil, Send } from "lucide-react";
 import { signOut } from "firebase/auth";
-import { auth } from "../firebase/config";
+import TextPressure from "@/components/TextPressure";
+import Loader from "@/components/ui/Loader";
 import { useAuth } from "@/app/Context/AuthContext";
-import { useRouter } from "next/navigation";
-import '../loading.css';
-import axios from "axios";
+import { api } from "@/lib/api";
+import { poiret } from "@/lib/fonts";
+import { slideAnimation } from "../config/motion";
+import { auth } from "../firebase/config";
+import "../loading.css";
 
-// Load Google Font
-const fontPoiretOne = Poiret_One({
-  subsets: ["latin"],
-  weight: ["400"],
-});
-
-interface ActiveItemState {
-  reglog: boolean;
-  contact: boolean;
-  facts: boolean;
-  update: boolean;
+function MenuItem({
+  children,
+  icon,
+  href,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  href?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const [hover, setHover] = useState(false);
+  const cls =
+    "hover:text-gray-500 focus-visible:text-gray-500 flex justify-center items-center gap-3 transition cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-white";
+  const events = {
+    onMouseEnter: () => setHover(true),
+    onMouseLeave: () => setHover(false),
+    onFocus: () => setHover(true),
+    onBlur: () => setHover(false),
+  };
+  const content = (
+    <>
+      {children}
+      {hover && !disabled && (
+        <motion.span
+          variants={slideAnimation("left")}
+          initial="initial"
+          animate="animate"
+          className="hidden md:inline-block"
+          aria-hidden
+        >
+          {icon}
+        </motion.span>
+      )}
+    </>
+  );
+  return (
+    <li>
+      {href ? (
+        <Link href={href} className={cls} {...events}>
+          {content}
+        </Link>
+      ) : (
+        <button type="button" onClick={onClick} disabled={disabled} className={cls} {...events}>
+          {content}
+        </button>
+      )}
+    </li>
+  );
 }
 
 export default function HeroSection() {
-  const { user, userData, loading } = useAuth();
-  const router = useRouter();
-  const [randFact, setRandFact] = useState("Random Fact")
-  const [factEnabled, setFactEnabled] = useState(true)
-  const [logoutText, setLogoutText] = useState("LOGOUT")
+  const { user, userData, loading, profileMissing } = useAuth();
+  const [fact, setFact] = useState("Random Fact");
+  const [factEnabled, setFactEnabled] = useState(true);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const [activeItem, setActiveItem] = useState<ActiveItemState>({
-    reglog: false,
-    contact: false,
-    facts: false,
-    update: false
-  });
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  const mouseIn = (item: keyof ActiveItemState) => {
-    setActiveItem((prev) => ({ ...prev, [item]: true }));
-  };
+  // wait for auth + profile (but don't hang forever if the profile doc is missing)
+  if (loading || (user && !userData && !profileMissing)) return <Loader />;
 
-  const mouseOut = (item: keyof ActiveItemState) => {
-    setActiveItem((prev) => ({ ...prev, [item]: false }));
-  };
-
-  // 🔹 Wait until both auth and user data are ready
-  if (loading || (user && !userData)) {
-    return (
-      <div className="w-full h-screen flex justify-center items-center bg-black">
-        <div className="honeycomb">
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-        </div>
-      </div>
-    );
-  }
-
-
-  const getRandomFact = async (): Promise<void> => {
-    if (!factEnabled) return;
-
-    try {
-      setFactEnabled(false);
-      setRandFact("Picking a random fact...");
-
-      const res = await axios.get<{ fact: string }>(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/randomFact`);
-
-      if (res && res.data && res.data.fact) {
-        setRandFact(res.data.fact);
-        setTimeout(() => {
-          setRandFact("Random Fact")
-          setFactEnabled(true);
-        }, 10000)
-      } else {
-        setRandFact("Random Fact");
-        setFactEnabled(true);
-      }
-    } catch (error) {
-      console.error("Error fetching random fact:", error);
-      setRandFact("Failed to fetch a random fact.");
+  const resetFactLater = () =>
+    timers.current.push(
       setTimeout(() => {
-        setRandFact("Random Fact")
+        setFact("Random Fact");
         setFactEnabled(true);
       }, 10000)
+    );
+
+  const getRandomFact = async () => {
+    if (!factEnabled) return;
+    setFactEnabled(false);
+    setFact("Picking a random fact...");
+    try {
+      const res = await api.get<{ fact: string }>("/api/randomFact");
+      setFact(res.data.fact || "Random Fact");
+    } catch {
+      setFact("Couldn't fetch a fact. Try again in a moment.");
     }
+    resetFactLater();
   };
 
   const handleSignOut = () => {
-    setLogoutText("CLICK TO CONFIRM!");
-    if (logoutText != "LOGOUT") {
-      signOut(auth);
+    if (!confirmLogout) {
+      setConfirmLogout(true);
+      timers.current.push(setTimeout(() => setConfirmLogout(false), 4000));
+      return;
     }
-  }
-
+    signOut(auth);
+  };
 
   return (
-    <AnimatePresence>
-      <div className="flex flex-col md:flex-col justify-around items-center w-screen h-[90vh] px-20 absolute z-1000">
+    <div className="flex flex-col justify-around items-center w-full h-[90vh] px-4 sm:px-20 absolute z-1000">
+      {user && (
+        <button
+          className={`text-red-500 border-2 py-2 px-5 border-red-500 rounded-xl cursor-pointer ${poiret.className} hover:text-stone-50 hover:bg-red-500 duration-[.5s]`}
+          onClick={handleSignOut}
+        >
+          {confirmLogout ? "CLICK TO CONFIRM!" : "LOGOUT"}
+        </button>
+      )}
+
+      <motion.h1
+        variants={slideAnimation("left")}
+        initial="initial"
+        exit="exit"
+        whileInView="animate"
+        viewport={{ once: false, amount: 0.25 }}
+        className={`head-text z-1000 px-4 sm:px-20 py-10 font-bold ${poiret.className}`}
+      >
+        <TextPressure
+          text={user ? userData?.name || "Welcome" : "Ournold"}
+          flex={true}
+          width={true}
+          minFontSize={150}
+          weight={true}
+          italic={true}
+        />
+      </motion.h1>
+
+      <motion.ul
+        variants={slideAnimation("right")}
+        initial="initial"
+        exit="exit"
+        whileInView="animate"
+        viewport={{ once: false, amount: 0.25 }}
+        className={`text-stone-50 text-xl flex flex-col md:flex-row items-center gap-8 md:gap-24 menu-items ${poiret.className}`}
+      >
+        <MenuItem href={user ? "/dashboard" : "/login"} icon={user ? <ChartLine color="#ffffff" strokeWidth={1} /> : <LogIn color="#ffffff" strokeWidth={1.25} />}>
+          {user ? "Dashboard" : "Register/Login"}
+        </MenuItem>
+        <MenuItem href="/contact" icon={<Send color="#ffffff" strokeWidth={1.25} />}>
+          Contact
+        </MenuItem>
+        <MenuItem onClick={getRandomFact} disabled={!factEnabled} icon={<Dumbbell color="#ffffff" strokeWidth={1.25} />}>
+          <span aria-live="polite">{fact}</span>
+        </MenuItem>
         {user && (
-          <button
-            key="logout-btn"
-            className={`text-red-500 border-2 py-2 px-5 border-red-500 rounded-xl cursor-pointer ${fontPoiretOne.className} hover:text-stone-50 hover:bg-red-500 duration-[.5s]`}
-            onClick={() => handleSignOut()}
-          >
-            {logoutText}
-          </button>
-        )}
-
-        {/* <div className={`${fontPoiretOne.className} text-stone-50 flex justify-around w-full inline-block`}>
-          {userData?.currentData.weight ? (<span>{userData.currentData.weight} Kg</span>) : ""}
-          {userData?.currentData.height ? (<span>{userData.currentData.height} cm</span>): ""}
-          {userData?.diet ? (<span>{userData.diet}</span>) : ""}
-          {userData?.currentData.goal ? (<span>You goal is to {userData.currentData.goal}</span>) : ""}
-        </div> */}
-
-        <motion.h1
-          variants={slideAnimation("left")}
-          initial="initial"
-          exit="exit"
-          whileInView="animate"
-          viewport={{ once: false, amount: 0.25 }}
-          className={`head-text z-1000 px-20 py-10 font-bold ${fontPoiretOne.className}`}
-        >
-          <TextPressure
-            text={user ? userData?.name || "Loading..." : "Ournold"}
-            flex={true}
-            width={true}
-            minFontSize={150}
-            weight={true}
-            italic={true}
-          />
-        </motion.h1>
-
-        <motion.ul
-          variants={slideAnimation("right")}
-          initial="initial"
-          exit="exit"
-          whileInView="animate"
-          viewport={{ once: false, amount: 0.25 }}
-          className={`text-stone-50 text-xl flex flex-col md:flex-row gap-10 md:gap-30 cursor-pointer menu-items ${fontPoiretOne.className}`}
-        >
-          {/* Register/Login or Dashboard */}
-          <li
-            className="hover:text-gray-500 flex justify-center items-center transition"
-            onMouseOver={() => mouseIn("reglog")}
-            onMouseOut={() => mouseOut("reglog")}
-            onClick={() => (user ? router.push("/dashboard") : router.push("/login"))}
-          >
-            {user ? <span>Dashboard</span> : <span>Register/Login</span>}
-            {activeItem.reglog && (
-              <motion.span
-                variants={slideAnimation("left")}
-                initial="initial"
-                exit="exit"
-                whileInView="animate"
-                viewport={{ once: false, amount: 0.25 }}
-                className="inline-block ml-40 absolute"
-              >
-                {user ? (
-                  <ChartLine color="#ffffff" strokeWidth={1} />
-                ) : (
-                  <LogIn color="#ffffff" strokeWidth={1.25} />
-                )}
-              </motion.span>
-            )}
-          </li>
-
-          {/* Contact */}
-          <li
-            className="hover:text-gray-500 flex justify-center items-center transition"
-            onMouseOver={() => mouseIn("contact")}
-            onMouseOut={() => mouseOut("contact")}
-            onClick={()=>router.push("/contact")}
-          >
-            Contact
-            {activeItem.contact && (
-              <motion.span
-                variants={slideAnimation("left")}
-                initial="initial"
-                exit="exit"
-                whileInView="animate"
-                viewport={{ once: false, amount: 0.25 }}
-                className="inline-block ml-30 absolute"
-              >
-                <Send color="#ffffff" strokeWidth={1.25} />
-              </motion.span>
-            )}
-          </li>
-
-          {/* Random Facts */}
-          <li
-            className="hover:text-gray-500 flex justify-center items-center transition"
-            onMouseOver={() => mouseIn("facts")}
-            onMouseOut={() => mouseOut("facts")}
-            onClick={() => getRandomFact()}
-          >
-            {randFact}{" "}
-            {activeItem.facts && factEnabled && (
-              <motion.span
-                variants={slideAnimation("left")}
-                initial="initial"
-                exit="exit"
-                whileInView="animate"
-                viewport={{ once: false, amount: 0.25 }}
-                className="inline-block ml-42 absolute"
-              >
-                <Dumbbell color="#ffffff" strokeWidth={1.25} />
-              </motion.span>
-            )}
-          </li>
-          
-          {/* UPDATE MEASURES */}
-          {user && <li
-            className="hover:text-gray-500 flex justify-center items-center transition"
-            onMouseOver={() => mouseIn("update")}
-            onMouseOut={() => mouseOut("update")}
-            onClick={() => router.push("/updateProfile")}
-          >
+          <MenuItem href="/updateProfile" icon={<Pencil color="#ffffff" strokeWidth={1.25} />}>
             Update Measures
-            {activeItem.update && factEnabled && (
-              <motion.span
-                variants={slideAnimation("left")}
-                initial="initial"
-                exit="exit"
-                whileInView="animate"
-                viewport={{ once: false, amount: 0.25 }}
-                className="inline-block ml-50 absolute"
-              >
-                <Pencil color="#ffffff" strokeWidth={1.25} />
-              </motion.span>
-            )}
-          </li>}
-        </motion.ul>
-      </div>
-    </AnimatePresence>
+          </MenuItem>
+        )}
+      </motion.ul>
+    </div>
   );
 }

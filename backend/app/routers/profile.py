@@ -36,17 +36,6 @@ def set_key(body: KeyBody, uid: str = Depends(ai_user)):
     return {"configured": True}
 
 
-class KeyTestBody(BaseModel):
-    key: str = Field(min_length=20, max_length=200)
-
-
-@router.post("/gemini-key/test")
-def test_key(body: KeyTestBody, uid: str = Depends(ai_user)):
-    """Used by the register form before the profile exists: validates without storing."""
-    llm.validate_key(body.key.strip())
-    return {"valid": True}
-
-
 # ------------------------------------------------------------- history charts
 def _history(uid: str, field: str, limit: int = 365):
     docs = user_ref(uid).collection("history").order_by("timestamp").limit(limit).stream()
