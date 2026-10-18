@@ -1,258 +1,171 @@
 "use client";
-import { useState, useEffect } from "react";
-import axios from "axios";
-import { Poiret_One } from "next/font/google";
-import { CloudUpload, Check, RotateCcw, ChevronLeft } from "lucide-react";
-import { addDoc, collection } from "firebase/firestore";
-import { db } from "@/app/firebase/config";
-import { useAuth } from "@/app/Context/AuthContext";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import ClickSpark from "@/components/ClickSpark";
+import { Check, CloudUpload, RotateCcw, Sparkles } from "lucide-react";
+import { useAuth } from "@/app/Context/AuthContext";
+import DashboardShell from "@/components/DashboardShell";
+import MacroFields, { MacroValues } from "@/components/food/MacroFields";
+import { Skeleton } from "@/components/ui/Loader";
+import { useToast } from "@/components/ui/Toast";
+import { api, toApiError } from "@/lib/api";
+import { poiret } from "@/lib/fonts";
+import { saveMeal } from "@/lib/meals";
 
-const fontPoiretOne = Poiret_One({
-  subsets: ["latin"],
-  weight: ["400"],
-});
+const MAX_INPUT_BYTES = 15 * 1024 * 1024;
 
-interface FoodAnalysis {
-  food_name: string;
-  total_calories: number;
-  protein_g: number;
-  carbs_g: number;
-  fat_g: number;
+/** Downscale to <=1280px JPEG so uploads are fast and always under the server's 5 MB limit. */
+async function compress(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not process image"))), "image/jpeg", 0.85)
+  );
 }
 
-export default function CloudinaryUpload() {
+export default function ImageFoodPage() {
   const router = useRouter();
-  const { user, userData } = useAuth();
+  const toast = useToast();
+  const { userData } = useAuth();
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!user) {
-      router.replace("/login");
-    }
-  }, [user, router]);
-
-
-  const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [macros, setMacros] = useState<MacroValues | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<FoodAnalysis | null>(null);
-  const [publicID, setPublicID] = useState<string | null>(null);
 
-  // 🧩 Handle file change
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    setImage(file);
-    setResult(null);
-    setError(null);
-    if (file) setPreview(URL.createObjectURL(file));
-  };
+  // release the object URL when it changes / on unmount
+  useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
 
-  // 🧠 Determine meal time
-  const getMealTime = () => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 11) return "breakfast";
-    if (hour >= 11 && hour < 16) return "lunch";
-    if (hour >= 16 && hour < 19) return "snack";
-    if (hour >= 19 && hour < 24) return "dinner";
-    return "late-night";
-  };
-
-  // ☁️ Upload + Analyze
-  const handleUpload = async () => {
-    if (!image) return alert("Please select an image first!");
-    setLoading(true);
-    setError(null);
-
-    try {
-      // 1️⃣ Upload to Cloudinary
-      const formData = new FormData();
-      formData.append("file", image);
-      formData.append("upload_preset", "temp_food_upload");
-
-      const cloudRes = await axios.post(
-        "https://api.cloudinary.com/v1_1/dapihhura/upload",
-        formData
-      );
-
-      const imageUrl = cloudRes.data.secure_url;
-      const publicId = cloudRes.data.public_id;
-      setPublicID(publicId);
-
-      // 2️⃣ Analyze using FastAPI
-      const fastRes = await axios.post(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/analyze_food?image_url=${encodeURIComponent(imageUrl)}`
-      );
-
-      const raw = fastRes.data.analysis;
-      const jsonStr = raw.substring(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
-
-      let parsed: FoodAnalysis | null = null;
-      try {
-        parsed = JSON.parse(jsonStr);
-      } catch (err) {
-        console.warn("Gemini returned invalid JSON:", raw);
-      }
-
-      if (parsed) setResult(parsed);
-      else setError("Could not parse analysis data.");
-    } catch (err: any) {
-      console.error(err);
-      setError("Upload or analysis failed. Try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🔥 Save to Firestore and cleanup Cloudinary
-  const uploadToFirebase = async () => {
-    if (!result || !userData?.uid) return;
-    const time = getMealTime();
-
-    try {
-      await addDoc(collection(db, "users", userData.uid, "meals"), {
-        meal_name: result.food_name,
-        cals: result.total_calories,
-        protein: result.protein_g,
-        carbs: result.carbs_g,
-        fat: result.fat_g,
-        meal_time: time,
-        timestamp: new Date().toISOString(),
-      });
-
-      if (publicID) {
-        await axios.delete(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/delete_temp_image`, {
-          params: { public_id: publicID },
-        });
-      }
-
-      router.push("/dashboard/food");
-    } catch (err) {
-      console.error("Error uploading to Firestore:", err);
-    }
-  };
-
-  // ♻️ Reset all
-  const resetAll = async () => {
-    setImage(null);
+  const reset = useCallback(() => {
+    setFile(null);
     setPreview(null);
-    setResult(null);
+    setMacros(null);
     setError(null);
-    setPublicID(null);
+    if (inputRef.current) inputRef.current.value = "";
+  }, []);
 
-    if (publicID) {
-      try {
-        await axios.delete(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/delete_temp_image`, {
-          params: { public_id: publicID },
-        });
-      } catch (err) {
-        console.error("Failed to delete temporary image:", err);
-      }
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!f.type.startsWith("image/")) return setError("Please choose an image file.");
+    if (f.size > MAX_INPUT_BYTES) return setError("That image is too large (max 15 MB).");
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+    setMacros(null);
+    setError(null);
+  };
+
+  const analyze = async () => {
+    if (!file) return;
+    setAnalyzing(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append("file", await compress(file), "meal.jpg");
+      const { data } = await api.post("/api/me/analyzeFood", body);
+      setMacros({
+        name: data.food_name,
+        calories: String(Math.round(data.total_calories)),
+        protein: String(Math.round(data.protein_g)),
+        carbs: String(Math.round(data.carbs_g)),
+        fat: String(Math.round(data.fat_g)),
+      });
+    } catch (e) {
+      setError(toApiError(e).message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const add = async () => {
+    if (!macros || !userData?.uid) return;
+    setSaving(true);
+    try {
+      await saveMeal(userData.uid, {
+        name: macros.name,
+        calories: Number(macros.calories),
+        protein: Number(macros.protein),
+        carbs: Number(macros.carbs),
+        fat: Number(macros.fat),
+      });
+      toast("Meal added", "success");
+      router.push("/dashboard/food");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Couldn't save the meal.", "error");
+      setSaving(false);
     }
   };
 
   return (
-    <ClickSpark>
-      <div>
-        <ChevronLeft
-          size={32}
-          color="#ffffff"
-          strokeWidth={1}
-          className="absolute top-4 left-4 sm:top-10 sm:left-10 text-stone-50 hover:text-gray-500 hover:scale-[1.5] transition cursor-pointer"
-          onClick={() => router.back()}
-        />
-        <img src="../../icon.png" alt="ournold-logo"
-          className="absolute top-4 left-10 sm:top-10 sm:left-20 text-stone-50 hover:text-gray-500 hover:scale-[1.5] transition cursor-pointer"
-          onClick={() => router.push("/")} width={40} />
-      </div>
-      <div
-        className={`${fontPoiretOne.className} flex items-center justify-center min-h-screen text-white gap-6 p-6`}
-      >
-        <div className="flex flex-col justify-center items-center gap-5 p-5">
-          <h1 className="text-2xl font-semibold">Upload Food Image</h1>
+    <DashboardShell active="food">
+      <div className={`${poiret.className} flex flex-col lg:flex-row items-center lg:items-start justify-center text-white gap-8 p-6`}>
+        <div className="flex flex-col items-center gap-4 w-full max-w-sm">
+          <h1 className="text-2xl sm:text-3xl font-semibold">Upload Food Image</h1>
 
-          {!preview && (
-            <label className="flex items-center gap-2 border border-gray-400 rounded-xl px-3 py-2 bg-gray-800 cursor-pointer hover:bg-gray-700 transition">
-              <CloudUpload className="text-white" strokeWidth={1.5} size={20} />
-              <span className="text-sm text-gray-300">Upload File</span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
+          {!preview ? (
+            <label className="w-full flex flex-col items-center gap-3 border-2 border-dashed border-gray-500 hover:border-stone-50 rounded-xl p-8 cursor-pointer transition text-center focus-within:border-stone-50">
+              <CloudUpload strokeWidth={1.25} size={40} />
+              <span className="text-gray-300">Tap to take or choose a photo</span>
+              <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="sr-only" />
             </label>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt="Selected food" className="w-64 h-64 object-cover rounded-xl shadow-lg" />
           )}
 
+          {preview && !macros && (
+            <button
+              onClick={analyze}
+              disabled={analyzing}
+              className="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg font-semibold disabled:opacity-50 transition flex items-center gap-2"
+            >
+              <Sparkles size={18} /> {analyzing ? "Analyzing…" : "Analyze"}
+            </button>
+          )}
           {preview && (
-            <img
-              src={preview}
-              alt="preview"
-              className="w-64 h-64 object-cover rounded-xl shadow-lg mt-2"
-            />
+            <button onClick={reset} className="text-sm text-gray-400 hover:text-stone-50 transition flex items-center gap-1">
+              <RotateCcw size={14} /> Choose a different photo
+            </button>
           )}
-
-          <button
-            onClick={handleUpload}
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg font-semibold mt-4 disabled:opacity-50 transition"
-          >
-            {loading ? "Analyzing..." : "Analyze"}
-          </button>
-
-          {error && <p className="text-red-400 mt-4">{error}</p>}
+          {error && (
+            <p className="text-red-400 text-center" role="alert">
+              {error}
+            </p>
+          )}
         </div>
 
-        {loading && (
-          <div className="bg-gray-800 p-4 rounded-xl mt-4 text-center shadow-md w-[30%]">
-            <div className="bg-gray-500 animate-pulse rounded-xl w-full h-[30px] mb-10"></div>
-            <ul className="space-y-1">
-              <li className="bg-gray-500 animate-pulse rounded-xl w-half h-[20px]"></li>
-              <li className="bg-gray-500 animate-pulse rounded-xl w-half h-[20px]"></li>
-              <li className="bg-gray-500 animate-pulse rounded-xl w-half h-[20px]"></li>
-              <li className="bg-gray-500 animate-pulse rounded-xl w-half h-[20px]"></li>
-            </ul>
-            <div className="flex gap-3 mt-5">
-              <button
-                className="flex-1 p-3 rounded-lg bg-gray-500 flex gap-3 justify-center items-center"
-              >
-                <Check color="#ffffff" strokeWidth={1.25} />
-                <span>Add to meals</span>
-              </button>
-
-              <button
-                className="flex-1 p-3 rounded-lg bg-gray-500 flex gap-3 justify-center items-center"
-              >
-                <RotateCcw color="#ffffff" strokeWidth={1.25} />
-                <span>Reset</span>
-              </button>
-            </div>
+        {analyzing && (
+          <div className="bg-gray-800 p-4 rounded-xl shadow-md w-full max-w-sm" aria-busy>
+            <Skeleton className="w-full h-[30px] mb-6 rounded-xl" />
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="w-1/2 h-[20px] mb-2 rounded-xl" />
+            ))}
           </div>
         )}
 
-        {result && (
-          <div className="bg-gray-800 p-4 rounded-xl mt-4 text-center shadow-md w-half">
-            {<h2 className="text-xl font-bold mb-3 text-stone-50">
-              {result.food_name}
-            </h2>}
-            <ul className="space-y-1">
-              <li>Calories: {result.total_calories} kcal</li>
-              <li>Protein: {result.protein_g} g</li>
-              <li>Carbs: {result.carbs_g} g</li>
-              <li>Fat: {result.fat_g} g</li>
-            </ul>
+        {macros && (
+          <div className="bg-gray-800 p-4 rounded-xl shadow-md w-full max-w-sm">
+            <p className="text-sm text-gray-400 mb-3">AI estimate, adjust anything that looks off.</p>
+            <MacroFields value={macros} onChange={setMacros} />
             <div className="flex gap-3 mt-5">
               <button
-                className="flex-1 p-3 rounded-lg bg-green-500 hover:bg-green-600 transition flex gap-3 justify-center items-center"
-                onClick={uploadToFirebase}
+                className="flex-1 p-3 rounded-lg bg-green-500 hover:bg-green-600 transition flex gap-2 justify-center items-center disabled:opacity-50"
+                onClick={add}
+                disabled={saving || !macros.name.trim()}
               >
                 <Check color="#ffffff" strokeWidth={1.25} />
-                <span>Add to meals</span>
+                <span>{saving ? "Saving…" : "Add to meals"}</span>
               </button>
               <button
-                className="flex-1 p-3 rounded-lg bg-red-500 hover:bg-red-600 transition flex gap-3 justify-center items-center"
-                onClick={resetAll}
+                className="flex-1 p-3 rounded-lg bg-red-500 hover:bg-red-600 transition flex gap-2 justify-center items-center"
+                onClick={reset}
               >
                 <RotateCcw color="#ffffff" strokeWidth={1.25} />
                 <span>Reset</span>
@@ -261,6 +174,6 @@ export default function CloudinaryUpload() {
           </div>
         )}
       </div>
-    </ClickSpark>
+    </DashboardShell>
   );
 }

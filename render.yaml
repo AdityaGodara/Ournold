@@ -1,0 +1,23 @@
+# Render Blueprint: New + > Blueprint > pick this repo. Free plan sleeps after ~15 min idle (see README for a keep-alive ping).
+services:
+  - type: web
+    name: ournold-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: FIREBASE_CREDENTIALS     # service-account JSON on one line
+        sync: false
+      - key: KEY_ENCRYPTION_SECRET    # Fernet key, see README
+        sync: false
+      - key: ALLOWED_ORIGINS          # e.g. https://ournold.vercel.app
+        sync: false
+      - key: SPOONACULAR_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY           # optional: powers the public random-fact button
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash

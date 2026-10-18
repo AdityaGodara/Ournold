@@ -1,240 +1,139 @@
 "use client";
-
 import React, { useState } from "react";
-import axios from "axios";
-import { db } from "@/app/firebase/config";
-import {
-  collection,
-  addDoc,
-} from "firebase/firestore";
-import { Poiret_One } from "next/font/google";
-import { useAuth } from "@/app/Context/AuthContext";
-import ClickSpark from "@/components/ClickSpark";
-import { ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { Search } from "lucide-react";
+import { useAuth } from "@/app/Context/AuthContext";
+import DashboardShell from "@/components/DashboardShell";
+import MacroFields, { MacroValues, emptyMacros } from "@/components/food/MacroFields";
+import { useToast } from "@/components/ui/Toast";
+import { api, toApiError } from "@/lib/api";
+import { poiret } from "@/lib/fonts";
+import { saveMeal } from "@/lib/meals";
 
-type Macros = {
-  name: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  confidence?: number | null;
+/** Local `YYYY-MM-DDTHH:mm` for the datetime-local input. */
+const localInputValue = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
-const fontPoiretOne = Poiret_One({
-  subsets: ["latin"],
-  weight: ["400"],
-});
-
-export default function MacrosForm() {
-  // userId prop: pass the authenticated Firebase user uid here.
-  // If omitted, items will be stored under "users/anonymous/meals"
-  const [query, setQuery] = useState("");
-  const [macros, setMacros] = useState<Macros | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
+export default function ManualFoodPage() {
   const { userData } = useAuth();
   const router = useRouter();
+  const toast = useToast();
 
-  // helper to auto-calc meal time based on local hour
-  const getMealTime = (date = new Date()) => {
-    const hour = date.getHours();
-    // Basic heuristic (local time)
-    if (hour >= 5 && hour < 10) return "breakfast";
-    if (hour >= 10 && hour < 15) return "lunch";
-    if (hour >= 15 && hour < 18) return "snack";
-    if (hour >= 18 && hour < 23) return "dinner";
-    return "snack";
-  };
+  const [query, setQuery] = useState("");
+  const [macros, setMacros] = useState<MacroValues>(emptyMacros);
+  const [when, setWhen] = useState(() => localInputValue(new Date()));
+  const [looking, setLooking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [hint, setHint] = useState("");
 
-  const fetchMacros = async () => {
-    if (!query.trim()) return setError("Enter a food name");
-    setLoading(true);
-    setError("");
-    setMacros(null);
-
+  const lookup = async () => {
+    const q = query.trim();
+    if (!q) return;
+    setLooking(true);
+    setHint("");
     try {
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/macros`, { name: query.trim() });
-      const data = res.data;
-      if (data.error) {
-        setError(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
-        return;
-      }
-      // data: { found: boolean, name, calories, protein, carbs, fat, confidence }
+      const { data } = await api.post("/api/macros", { name: q });
       setMacros({
-        name: data.name || query,
-        calories: Number(data.calories || 0),
-        protein: Number(data.protein || 0),
-        carbs: Number(data.carbs || 0),
-        fat: Number(data.fat || 0),
-        confidence: data.confidence ?? null,
+        name: data.name || q,
+        calories: String(Math.round(data.calories || 0)),
+        protein: String(Math.round(data.protein || 0)),
+        carbs: String(Math.round(data.carbs || 0)),
+        fat: String(Math.round(data.fat || 0)),
       });
-      // If not found, still set macros (all zeros) so user can enter manual values
-      if (!data.found) {
-        setError("No reliable API result; you can enter values manually.");
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.response?.data?.detail || err?.message || "Failed to fetch");
+      if (!data.found) setHint("No reliable match found. Please enter the values manually.");
+    } catch (e) {
+      setMacros((m) => ({ ...m, name: m.name || q }));
+      setHint(`${toApiError(e).message} You can still enter the values manually.`);
     } finally {
-      setLoading(false);
+      setLooking(false);
     }
   };
 
-  const handleChange = (field: keyof Macros, value: string) => {
-    if (!macros) {
-      setMacros({
-        name: query,
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
-      });
-    }
-    setMacros((m) => {
-      if (!m) return null;
-      return { ...m, [field]: field === "name" ? value : Number(value) };
-    });
-  };
-
-  const saveToFirestore = async () => {
-    if (!macros) return setError("No macros to save");
+  const save = async () => {
+    if (!userData?.uid) return;
     setSaving(true);
-    setError("");
-
     try {
-      const uid = userData.uid;
-      const meal_time = getMealTime();
-      const mealDoc = {
-        meal_name: macros.name,
-        cals: Number(macros.calories || 0),
-        protein: Number(macros.protein || 0),
-        carbs: Number(macros.carbs || 0),
-        fat: Number(macros.fat || 0),
-        timestamp: new Date().toISOString(),
-        meal_time,
-      };
-
-      const colRef = collection(db, "users", uid, "meals");
-      await addDoc(colRef, mealDoc);
-
-      // optionally clear UI
-      setQuery("");
-      setMacros(null);
-      setError("");
-      alert("Saved meal!");
-    } catch (err: any) {
-      console.error(err);
-      setError("Failed to save meal: " + (err?.message || JSON.stringify(err)));
-    } finally {
+      await saveMeal(userData.uid, {
+        name: macros.name,
+        calories: Number(macros.calories),
+        protein: Number(macros.protein),
+        carbs: Number(macros.carbs),
+        fat: Number(macros.fat),
+        at: new Date(when),
+      });
+      toast("Meal saved", "success");
+      router.push("/dashboard/food");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Couldn't save the meal.", "error");
       setSaving(false);
     }
   };
 
+  const canSave = macros.name.trim() && macros.calories !== "" && !saving;
+
   return (
-    <ClickSpark>
+    <DashboardShell active="food">
+      <div className={`max-w-xl flex flex-col mx-auto px-6 text-white mt-6 ${poiret.className}`}>
+        <h1 className="text-2xl sm:text-3xl font-semibold mb-4">Add Food / Guess Macros</h1>
 
-      <div>
-                <ChevronLeft
-                    size={32}
-                    color="#ffffff"
-                    strokeWidth={1}
-                    className="absolute top-4 left-4 sm:top-10 sm:left-10 text-stone-50 hover:text-gray-500 hover:scale-[1.5] transition cursor-pointer"
-                    onClick={() => router.back()}
-                />
-            </div>
-      <div className={`max-w-xl flex flex-col mx-auto p-6 rounded-lg text-white mt-10 ${fontPoiretOne.className}`}>
-        <h2 className="text-2xl font-semibold mb-4">Add Food / Guess Macros</h2>
-
-        <div className="flex gap-2 mb-3">
+        <form
+          className="flex gap-2 mb-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            lookup();
+          }}
+        >
           <input
-            className="flex-1 p-2 rounded border text-stone-50"
-            placeholder="Enter food or recipe name (e.g., chhole rice, banana)"
+            aria-label="Food or recipe name"
+            className="flex-1 p-2 rounded border border-stone-500 focus:border-stone-50 focus:outline-none bg-transparent text-stone-50 transition"
+            placeholder="Food or recipe (e.g., chhole rice, banana)"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            maxLength={120}
           />
           <button
-            className="px-4 rounded bg-stone-50 hover:bg-gray-700 hover:text-stone-50 text-black transition cursor-pointer"
-            onClick={fetchMacros}
-            disabled={loading}
+            type="submit"
+            className="px-4 rounded bg-stone-50 hover:bg-gray-700 hover:text-stone-50 text-black transition flex items-center gap-2 disabled:opacity-50"
+            disabled={looking || !query.trim()}
           >
-            {loading ? "Looking..." : "Fetch"}
+            <Search size={18} />
+            {looking ? "Looking…" : "Fetch"}
           </button>
-        </div>
+        </form>
 
-        {error && <p className="text-orange-300 mb-2">{error}</p>}
+        {hint && (
+          <p className="text-orange-300 mb-3" role="status">
+            {hint}
+          </p>
+        )}
 
-        {/* Editable macro fields */}
-        <div className="grid grid-cols-1 gap-3">
-          <label className="text-sm">
-            Name
-            <input
-              className="w-full p-2 rounded mt-1 text-stone-50"
-              value={macros?.name ?? query}
-              onChange={(e) => handleChange("name", e.target.value)}
-            />
-          </label>
+        <MacroFields value={macros} onChange={setMacros} />
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-sm">
-              Calories (kcal)
-              <input
-                type="number"
-                className="w-full p-2 rounded mt-1 text-stone-50"
-                value={macros?.calories ?? ""}
-                onChange={(e) => handleChange("calories", e.target.value)}
-              />
-            </label>
+        <label className="text-sm mt-3" htmlFor="meal-when">
+          When did you eat this?
+          <input
+            id="meal-when"
+            type="datetime-local"
+            max={localInputValue(new Date())}
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+            className="w-full p-2 rounded mt-1 text-stone-50 bg-transparent border border-stone-500 focus:border-stone-50 focus:outline-none"
+          />
+        </label>
 
-            <label className="text-sm">
-              Protein (g)
-              <input
-                type="number"
-                className="w-full p-2 rounded mt-1 text-stone-50"
-                value={macros?.protein ?? ""}
-                onChange={(e) => handleChange("protein", e.target.value)}
-              />
-            </label>
-
-            <label className="text-sm">
-              Carbs (g)
-              <input
-                type="number"
-                className="w-full p-2 rounded mt-1 text-stone-50"
-                value={macros?.carbs ?? ""}
-                onChange={(e) => handleChange("carbs", e.target.value)}
-              />
-            </label>
-
-            <label className="text-sm">
-              Fat (g)
-              <input
-                type="number"
-                className="w-full p-2 rounded mt-1 text-stone-50"
-                value={macros?.fat ?? ""}
-                onChange={(e) => handleChange("fat", e.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="flex items-center gap-3 mt-2">
-            <button
-              className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 cursor-pointer"
-              onClick={saveToFirestore}
-              disabled={saving}
-            >
-              {saving ? "Saving..." : "Save to Meals"}
-            </button>
-
-            <div className="text-sm text-gray-300">
-              Meal time will be set automatically based on current time.
-            </div>
-          </div>
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            className="px-5 py-2 bg-green-600 rounded hover:bg-green-700 transition disabled:opacity-50"
+            onClick={save}
+            disabled={!canSave}
+          >
+            {saving ? "Saving…" : "Save to Meals"}
+          </button>
+          <span className="text-sm text-gray-300">Meal time is set from the time above.</span>
         </div>
       </div>
-    </ClickSpark>
+    </DashboardShell>
   );
 }

@@ -1,39 +1,29 @@
-import { useEffect, useState, createContext, useContext } from 'react'
-import Lenis from 'lenis';
+import { createContext, useContext, useEffect, useState } from "react";
+import Lenis from "lenis";
 
-const SmoothScrollContext = createContext();
+const SmoothScrollContext = createContext(null);
 
 export const useSmoothScroll = () => useContext(SmoothScrollContext);
 
+/** Lenis smooth scrolling for the landing page. Disabled for users who prefer reduced motion. */
 export default function ScrollContext({ children }) {
+  const [lenis, setLenis] = useState(null);
 
-    const [lenisRef, setLenis] = useState(null);
-    const [rafState, setRafState] = useState(null);
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
 
-    useEffect(() => {
-        const scroller = new Lenis();
-        let rf;
+    const scroller = new Lenis();
+    let frame = requestAnimationFrame(function raf(time) {
+      scroller.raf(time);
+      frame = requestAnimationFrame(raf);
+    });
+    setLenis(scroller);
 
-        function raf(time) {
-            scroller.raf(time);
-            requestAnimationFrame(raf);
-        }
+    return () => {
+      cancelAnimationFrame(frame);
+      scroller.destroy();
+    };
+  }, []);
 
-        rf = requestAnimationFrame(raf);
-        setRafState(rf);
-        setLenis(scroller);
-
-        return () => {
-            if (lenisRef) {
-                cancelAnimationFrame(rafState);
-                lenisRef?.destroy();
-            }
-        }
-    }, [])
-
-    return (
-        <SmoothScrollContext.Provider value={lenisRef}>
-            {children}
-        </SmoothScrollContext.Provider> 
-    )
+  return <SmoothScrollContext.Provider value={lenis}>{children}</SmoothScrollContext.Provider>;
 }

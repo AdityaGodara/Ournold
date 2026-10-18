@@ -1,61 +1,80 @@
-"use client"
+"use client";
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
+import { doc, DocumentReference, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/app/firebase/config";
-import { doc, getDoc } from "firebase/firestore";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 interface AuthContextType {
   user: User | null;
+  /** Live Firestore profile (updates automatically after saves). `uid` is always included. */
   userData: any | null;
-  userDocRef: any | null;
+  userDocRef: DocumentReference | null;
+  /** True until both Firebase Auth and the first profile snapshot have resolved. */
   loading: boolean;
+  /** Signed in, but no profile document exists (registration was interrupted). */
+  profileMissing: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   userData: null,
+  userDocRef: null,
   loading: true,
-  userDocRef: null
+  profileMissing: false,
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<any | null>(null);
-  const [userDocRef, setUserDocRef] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [userDocRef, setUserDocRef] = useState<DocumentReference | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileMissing, setProfileMissing] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    return onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
-      if (firebaseUser) {
-        try {
-          const docRef = doc(db, "users", firebaseUser.uid);
-          const docSnap = await getDoc(docRef);
-          // console.log("DOC SNAP: ", docSnap.data())
-          if (docSnap.exists()) {
-                setUserData({
-                    uid: firebaseUser.uid,
-                    ...docSnap.data()
-                });
-                setUserDocRef(docRef);
-            } else {
-                console.log("No user data found!");
-            }
-        } catch (error) {
-          console.error("Error fetching user data:", error);
-          setUserData(null);
-        }
-      } else {
+      setAuthReady(true);
+      if (!firebaseUser) {
         setUserData(null);
+        setUserDocRef(null);
+        setProfileMissing(false);
+        setProfileReady(true);
+      } else {
+        setProfileReady(false);
       }
-      setLoading(false);
     });
-
-    return () => unsubscribe();
   }, []);
 
+  // Live profile subscription: no stale data after updateProfile / AI writes.
+  useEffect(() => {
+    if (!user) return;
+    const ref = doc(db, "users", user.uid);
+    setUserDocRef(ref);
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          setUserData({ uid: user.uid, ...snap.data() });
+          setProfileMissing(false);
+        } else {
+          setUserData(null);
+          setProfileMissing(true);
+        }
+        setProfileReady(true);
+      },
+      (err) => {
+        console.error("Profile subscription failed:", err);
+        setProfileReady(true);
+      }
+    );
+  }, [user]);
+
   return (
-    <AuthContext.Provider value={{ user, userData, loading, userDocRef }}>
+    <AuthContext.Provider
+      value={{ user, userData, userDocRef, loading: !authReady || !profileReady, profileMissing }}
+    >
       {children}
     </AuthContext.Provider>
   );
